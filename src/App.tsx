@@ -297,8 +297,8 @@ export default function App() {
         {loading && (
           <div className="mt-6 flex flex-col items-center justify-center rounded-2xl border border-gray-200/80 bg-white/90 py-20 shadow-lg shadow-gray-200/50">
             <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
-            <p className="mt-4 text-sm font-medium text-gray-600">Analyzing the product and searching the web...</p>
-            <p className="mt-1 text-xs text-gray-400">This may take a few seconds</p>
+            <p className="mt-4 text-sm font-medium text-gray-600">Searching the web for your product...</p>
+            <p className="mt-1 text-xs text-gray-400">Live web search can take 15-30 seconds</p>
           </div>
         )}
 

@@ -39,7 +39,7 @@ function buildSearchPrompt(query: string, queryType: string): string {
   const typeLabel = queryType === "barcode" ? "barcode/UPC/EAN" : "product name or model number";
   return `You are looking up a product for this ${typeLabel}: "${query}".
 
-Use the live web search tool to find the product. Use web search to validate factual product information — do not rely on memory alone.
+Use the live web search tool to find the product AND its pricing in a single search. Use web search to validate factual product information — do not rely on memory alone.
 
 IDENTIFICATION RULES:
 
@@ -68,31 +68,6 @@ Return ONLY valid JSON in this exact shape (no markdown, no code blocks, no extr
 }
 
 Only return empty title with confidence "low" if the query is genuinely meaningless or does not correspond to any real product (e.g. "xyzunknownthing12345"). A recognizable product name is always enough to return a result.`;
-}
-
-function buildPriceSearchPrompt(query: string): string {
-  return `You are a pricing investigator. Your job is to use live web search and find the ABSOLUTE HIGHEST price for this product: "${query}".
-
-Search strategy — check these sources:
-1. Amazon — search for the product, check all listings including third-party sellers
-2. eBay — search completed/sold listings, check "Buy It Now" prices
-3. Best Buy, Walmart, B&H Photo, Newegg, manufacturer's official website
-4. Any specialty retailers relevant to this product category
-
-For each source, note the price you found. Then return the SINGLE HIGHEST price across all sources.
-
-Return ONLY valid JSON (no markdown, no code blocks, no extra text):
-{
-  "highestPrice": 0,
-  "highestPriceSourceUrl": "direct URL of the listing with the highest price, or empty string",
-  "priceSources": [{"retailer": "name", "price": 0, "url": "link to the listing"}],
-  "confidence": "high | medium | low"
-}
-
-Rules:
-- The price must be in USD.
-- If you cannot find any reliable pricing, return 0 for highestPrice. Do not fabricate prices.
-- "highestPriceSourceUrl" should be the direct URL of the page where the highest price was found, or empty string if no price was found.`;
 }
 
 const VISION_PROMPT = `You are identifying the exact product shown in the provided image. Examine the image carefully — look for brand names, model numbers, labels, logos, and any visible text on the product or its packaging.
@@ -363,20 +338,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const searchModel = "gpt-5.6-luna";
-    const [mainContent, priceContent] = await Promise.all([
-      callOpenAIResponses(openaiKey, searchModel, [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildSearchPrompt(searchQuery, searchType) },
-      ]),
-      callOpenAIResponses(openaiKey, searchModel, [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildPriceSearchPrompt(searchQuery) },
-      ]).catch(() => null),
+    const content = await callOpenAIResponses(openaiKey, searchModel, [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildSearchPrompt(searchQuery, searchType) },
     ]);
 
     let mainResult: PartialResult;
     try {
-      mainResult = JSON.parse(extractJson(mainContent));
+      mainResult = JSON.parse(extractJson(content));
     } catch {
       return new Response(
         JSON.stringify({ error: "The live search returned an unreadable result. Try the model number again." }),
@@ -384,16 +353,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    let priceResult: PartialResult | null = null;
-    if (priceContent) {
-      try {
-        priceResult = JSON.parse(extractJson(priceContent));
-      } catch {
-        priceResult = null;
-      }
-    }
-
-    const result = mergeResults(mainResult, priceResult);
+    const result = mergeResults(mainResult, null);
 
     const validationError = validateResult(result, image ? undefined : query, searchType);
     if (validationError) {
