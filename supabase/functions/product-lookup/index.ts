@@ -33,70 +33,66 @@ interface PartialResult {
   confidence?: string;
 }
 
-const SYSTEM_PROMPT = "You are a strict product identification and pricing expert. You search the web for product information and return structured JSON data. You MUST verify that every piece of data (title, specs, links, price) is for the EXACT product queried — never a similar model or variant. If you cannot verify the exact product, return empty results with low confidence. Always return valid JSON only, no markdown formatting or code blocks.";
+const SYSTEM_PROMPT = "You are a product identification and pricing expert. You search the web for product information and return structured JSON data. Identify the most likely real-world product for the user's query. Broad recognizable product names (e.g. 'Xbox 360', 'PlayStation 5', 'Nintendo Switch') are valid — you do NOT need an exact model number to return a result. If the exact variant is unknown, return the product family and mark uncertain fields as null or empty. Never fabricate a model number. Always return valid JSON only, no markdown formatting or code blocks.";
 
 function buildSearchPrompt(query: string, queryType: string): string {
-  const typeLabel = queryType === "barcode" ? "barcode/UPC/EAN" : "model number";
-  return `You are looking up the exact product for this ${typeLabel}: "${query}".
+  const typeLabel = queryType === "barcode" ? "barcode/UPC/EAN" : "product name or model number";
+  return `You are looking up a product for this ${typeLabel}: "${query}".
 
-Use the live web search tool to find the EXACT product. Do not rely on memory or the product links alone. This is critical — the product must be an exact match for the model number or barcode given, not a similar or related model.
+Use the live web search tool to find the product. Use web search to validate factual product information — do not rely on memory alone.
 
-STRICT RULES — you MUST follow every one:
+IDENTIFICATION RULES:
 
-0. EXACT MATCH: The product title, specs, links, and price must ALL be for the EXACT product matching "${query}". Do NOT substitute a similar model, a different generation, or a close variant. If you cannot find the exact product, return empty title and confidence "low".
+1. RECOGNIZE PRODUCT FAMILIES: If the user enters a recognizable product name like "Xbox 360", "PlayStation 5", "Nintendo Switch", "iPhone 15 Pro", "RTX 4090", or "MacBook Air M2", identify that product successfully. You do NOT need an exact hardware revision or model number to return a result.
 
-1. PRODUCT LINKS: You MUST return exactly 3 product links in the "productLinks" array. Each URL must be a real, live page for THIS EXACT product (not a search results page, not a category page). Open and verify each URL leads to the exact product. Use different retailers when possible (e.g. manufacturer page, Amazon, eBay, Best Buy, Walmart, B&H, Newegg). Do NOT return fewer than 3 links. Do NOT return placeholder or made-up URLs.
+2. EXACT VS PARTIAL: If you can determine the exact model/variant, include it. If multiple variants exist and you cannot determine which one the user means (e.g. Xbox 360 vs Xbox 360 S vs Xbox 360 E), return the product family name (e.g. "Microsoft Xbox 360") and set confidence to "medium". Do NOT reject the search just because multiple versions exist.
 
-2. HIGHEST PRICE: You MUST find the ABSOLUTE HIGHEST price that exists for THIS EXACT product across ALL retailers and marketplaces. Search broadly — check Amazon, eBay (including sold listings), Best Buy, Walmart, B&H, Newegg, manufacturer direct, and any other seller. Return the single highest price you can find, in USD. This is a strict rule: do NOT return the average price, the lowest price, or a mid-range price. Return the MAXIMUM price found anywhere. The price must be for the EXACT product — not a bundle, not an accessory, not a different variant. Do NOT return 0 if any price exists.
+3. PRODUCT LINKS: Return up to 3 product links in the "productLinks" array. Each URL should be a real page for this product (not a search results page). Use different retailers when possible (manufacturer page, Amazon, eBay, Best Buy, Walmart, B&H, Newegg). If you cannot find 3 links, return as many real ones as you can — even 1 is acceptable.
 
-3. HIGHEST PRICE SOURCE URL: You MUST include "highestPriceSourceUrl" — the direct URL of the listing or page where you found the absolute highest price. This URL is critical as proof of the price source. It must be a real, live page — not a search results page.
+4. HIGHEST PRICE: Find the ABSOLUTE HIGHEST price that exists for this product across ALL retailers and marketplaces. Search broadly — check Amazon, eBay, Best Buy, Walmart, B&H, Newegg, manufacturer direct, and any other seller. Return the single highest price you can find, in USD. If you cannot find any reliable pricing, return 0 for highestPrice — the product can still be identified without pricing.
 
-4. SPECS: Combine the product description AND specifications into a single array of bullet-point strings. Include brand, model number (which must match "${query}"), key specs, and 2-3 description sentences — each as its own bullet.
+5. HIGHEST PRICE SOURCE URL: Include "highestPriceSourceUrl" — the direct URL of the listing where you found the highest price. If no price was found, use an empty string.
+
+6. SPECS: Combine the product description AND specifications into a single array of bullet-point strings. Include brand, model, key specs, and 2-3 description sentences — each as its own bullet.
+
+7. BARCODE MODE: If this is a barcode search, try to map it to a specific product. Barcode searches should be more precise, but if the barcode maps to a product family rather than a specific SKU, still return the product.
 
 Return ONLY valid JSON in this exact shape (no markdown, no code blocks, no extra text):
 {
-  "title": "exact product name",
-  "specs": ["Brand: ...", "Model: ...", "spec 1", "spec 2", "description sentence 1", "description sentence 2"],
+  "title": "product name including brand",
+  "specs": ["Brand: ...", "Model: ...", "spec 1", "spec 2", "description sentence 1"],
   "highestPrice": 0,
-  "highestPriceSourceUrl": "direct URL of the listing with the highest price",
-  "productLinks": ["url1", "url2", "url3"],
+  "highestPriceSourceUrl": "direct URL of the listing with the highest price, or empty string",
+  "productLinks": ["url1", "url2"],
   "confidence": "high | medium | low"
 }
 
-If the exact product cannot be verified, return empty title and confidence "low" rather than inventing details.`;
+Only return empty title with confidence "low" if the query is genuinely meaningless or does not correspond to any real product (e.g. "xyzunknownthing12345"). A recognizable product name is always enough to return a result.`;
 }
 
 function buildPriceSearchPrompt(query: string): string {
-  return `You are a pricing investigator. Your ONLY job is to use live web search and find the ABSOLUTE HIGHEST price for this exact product: "${query}".
+  return `You are a pricing investigator. Your job is to use live web search and find the ABSOLUTE HIGHEST price for this product: "${query}".
 
-Search strategy — you MUST check ALL of these sources:
+Search strategy — check these sources:
 1. Amazon — search for the product, check all listings including third-party sellers
-2. eBay — search completed/sold listings, check "Buy It Now" prices, not just auctions
-3. Best Buy — check if the product is sold there
-4. Walmart — check marketplace sellers too
-5. B&H Photo — check photography/electronics products
-6. Newegg — check computer/electronics products
-7. Manufacturer's official website — check MSRP
-8. Any specialty retailers relevant to this product category
+2. eBay — search completed/sold listings, check "Buy It Now" prices
+3. Best Buy, Walmart, B&H Photo, Newegg, manufacturer's official website
+4. Any specialty retailers relevant to this product category
 
 For each source, note the price you found. Then return the SINGLE HIGHEST price across all sources.
 
 Return ONLY valid JSON (no markdown, no code blocks, no extra text):
 {
   "highestPrice": 0,
-  "highestPriceSourceUrl": "direct URL of the listing with the highest price",
+  "highestPriceSourceUrl": "direct URL of the listing with the highest price, or empty string",
   "priceSources": [{"retailer": "name", "price": 0, "url": "link to the listing"}],
   "confidence": "high | medium | low"
 }
 
 Rules:
 - The price must be in USD.
-- The price must be for the EXACT product — not a bundle, accessory, or variant.
-- If you find a higher price on eBay from a third-party seller, use that.
-- If the manufacturer's MSRP is higher than marketplace prices, use the MSRP.
-- Do NOT return 0 if any price exists. Keep searching until you find at least one real price.
-- Return the MAXIMUM price found across ALL sources.
-- "highestPriceSourceUrl" MUST be the direct URL of the page where the highest price was found. This is critical as proof of the price source.`;
+- If you cannot find any reliable pricing, return 0 for highestPrice. Do not fabricate prices.
+- "highestPriceSourceUrl" should be the direct URL of the page where the highest price was found, or empty string if no price was found.`;
 }
 
 const VISION_PROMPT = `You are identifying the exact product shown in the provided image. Examine the image carefully — look for brand names, model numbers, labels, logos, and any visible text on the product or its packaging.
@@ -116,26 +112,28 @@ Rules:
 - If you cannot identify the product with reasonable confidence, return empty title and confidence "low".
 - Do NOT guess or invent details. Only report what you can actually see in the image.`;
 
-function validateResult(result: ProductResult, query?: string): string | null {
-  if (!result.title || !result.specs || result.specs.length === 0) {
-    return "The exact product could not be verified. Try adding the brand or model number.";
+function validateResult(result: ProductResult, query?: string, queryType?: string): string | null {
+  if (!result.title) {
+    return "The product could not be identified. Try adding the brand or model number.";
   }
 
   if (!Array.isArray(result.productLinks)) result.productLinks = [];
   if (!Array.isArray(result.specs)) result.specs = [String(result.specs)];
 
-  if (query) {
+  // Only do strict query matching for barcode searches
+  if (query && queryType === "barcode") {
     const queryUpper = query.toUpperCase();
     const allText = (result.title + " " + result.specs.join(" ")).toUpperCase();
     const queryParts = queryUpper.split(/\s+/).filter((p) => p.length >= 3);
     const matchedParts = queryParts.filter((p) => allText.includes(p));
     const matchRatio = queryParts.length > 0 ? matchedParts.length / queryParts.length : 1;
 
-    if (matchRatio < 0.5) {
-      return "The AI result did not match the model number closely enough. Try adding the brand name or a more specific model number.";
+    if (matchRatio < 0.3) {
+      return "The barcode did not match a known product. Try searching by product name instead.";
     }
   }
 
+  // Filter out search-result page URLs from product links
   const searchPatterns = [
     /amazon\.com\/s\?/, /amazon\.com\/gp\/search/, /ebay\.com\/sch\//,
     /ebay\.com\/itm\/\?/, /google\.com\/search/, /bing\.com\/search/,
@@ -145,10 +143,7 @@ function validateResult(result: ProductResult, query?: string): string | null {
     (link) => !searchPatterns.some((pattern) => pattern.test(link))
   );
 
-  if (result.productLinks.length < 1) {
-    return "Could not find valid product page links for this exact model. Try the search again or add the brand name.";
-  }
-
+  // Product links are optional — don't reject if none found
   return null;
 }
 
@@ -231,7 +226,10 @@ async function callOpenAIResponses(
 
   const data = await response.json();
 
+  // The Responses API returns output_text at the top level
   let content = data.output_text;
+
+  // Fallback: search through the output array for message content
   if (!content && Array.isArray(data.output)) {
     for (const item of data.output) {
       if (item.type === "message" && Array.isArray(item.content)) {
@@ -248,7 +246,7 @@ async function callOpenAIResponses(
 
   if (!content) {
     console.error("OpenAI Responses API: no text in output. Raw:", JSON.stringify(data).slice(0, 500));
-    throw new Error("No response from AI");
+    throw new Error("Search temporarily unavailable. Please try again.");
   }
   return content;
 }
@@ -283,7 +281,7 @@ function mergeResults(primary: PartialResult, priceResult: PartialResult | null)
     });
   }
 
-  addLink(highestPriceSourceUrl);
+  if (highestPriceSourceUrl) addLink(highestPriceSourceUrl);
 
   const result: ProductResult = {
     title: primary.title || "",
@@ -397,7 +395,7 @@ Deno.serve(async (req: Request) => {
 
     const result = mergeResults(mainResult, priceResult);
 
-    const validationError = validateResult(result, image ? undefined : query);
+    const validationError = validateResult(result, image ? undefined : query, searchType);
     if (validationError) {
       return new Response(
         JSON.stringify({ error: validationError }),
