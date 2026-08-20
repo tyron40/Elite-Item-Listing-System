@@ -35,44 +35,6 @@ interface PartialResult {
 
 const SYSTEM_PROMPT = "You are a strict product identification and pricing expert. You search the web for product information and return structured JSON data. You MUST verify that every piece of data (title, specs, links, price) is for the EXACT product queried — never a similar model or variant. If you cannot verify the exact product, return empty results with low confidence. Always return valid JSON only, no markdown formatting or code blocks.";
 
-const SEARCH_SCHEMA = {
-  type: "object",
-  properties: {
-    title: { type: "string" },
-    specs: { type: "array", items: { type: "string" } },
-    highestPrice: { type: "number" },
-    highestPriceSourceUrl: { type: "string" },
-    productLinks: { type: "array", items: { type: "string" } },
-    confidence: { type: "string" },
-  },
-  required: ["title", "specs", "highestPrice", "highestPriceSourceUrl", "productLinks", "confidence"],
-  additionalProperties: false,
-};
-
-const PRICE_SCHEMA = {
-  type: "object",
-  properties: {
-    highestPrice: { type: "number" },
-    highestPriceSourceUrl: { type: "string" },
-    priceSources: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          retailer: { type: "string" },
-          price: { type: "number" },
-          url: { type: "string" },
-        },
-        required: ["retailer", "price", "url"],
-        additionalProperties: false,
-      },
-    },
-    confidence: { type: "string" },
-  },
-  required: ["highestPrice", "highestPriceSourceUrl", "priceSources", "confidence"],
-  additionalProperties: false,
-};
-
 function buildSearchPrompt(query: string, queryType: string): string {
   const typeLabel = queryType === "barcode" ? "barcode/UPC/EAN" : "model number";
   return `You are looking up the exact product for this ${typeLabel}: "${query}".
@@ -91,6 +53,16 @@ STRICT RULES — you MUST follow every one:
 
 4. SPECS: Combine the product description AND specifications into a single array of bullet-point strings. Include brand, model number (which must match "${query}"), key specs, and 2-3 description sentences — each as its own bullet.
 
+Return ONLY valid JSON in this exact shape (no markdown, no code blocks, no extra text):
+{
+  "title": "exact product name",
+  "specs": ["Brand: ...", "Model: ...", "spec 1", "spec 2", "description sentence 1", "description sentence 2"],
+  "highestPrice": 0,
+  "highestPriceSourceUrl": "direct URL of the listing with the highest price",
+  "productLinks": ["url1", "url2", "url3"],
+  "confidence": "high | medium | low"
+}
+
 If the exact product cannot be verified, return empty title and confidence "low" rather than inventing details.`;
 }
 
@@ -108,6 +80,14 @@ Search strategy — you MUST check ALL of these sources:
 8. Any specialty retailers relevant to this product category
 
 For each source, note the price you found. Then return the SINGLE HIGHEST price across all sources.
+
+Return ONLY valid JSON (no markdown, no code blocks, no extra text):
+{
+  "highestPrice": 0,
+  "highestPriceSourceUrl": "direct URL of the listing with the highest price",
+  "priceSources": [{"retailer": "name", "price": 0, "url": "link to the listing"}],
+  "confidence": "high | medium | low"
+}
 
 Rules:
 - The price must be in USD.
@@ -229,7 +209,6 @@ async function callOpenAIResponses(
   openaiKey: string,
   model: string,
   input: Array<{ role: string; content: string }>,
-  schema: Record<string, unknown>,
 ) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -241,14 +220,6 @@ async function callOpenAIResponses(
       model,
       tools: [{ type: "web_search" }],
       input,
-      text: {
-        format: {
-          type: "json_schema",
-          name: "product_result",
-          strict: false,
-          schema,
-        },
-      },
     }),
   });
 
@@ -393,16 +364,16 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const searchModel = Deno.env.get("OPENAI_MODEL") || "gpt-5.6-luna";
+    const searchModel = "gpt-5.6-luna";
     const [mainContent, priceContent] = await Promise.all([
       callOpenAIResponses(openaiKey, searchModel, [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildSearchPrompt(searchQuery, searchType) },
-      ], SEARCH_SCHEMA),
+      ]),
       callOpenAIResponses(openaiKey, searchModel, [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildPriceSearchPrompt(searchQuery) },
-      ], PRICE_SCHEMA).catch(() => null),
+      ]).catch(() => null),
     ]);
 
     let mainResult: PartialResult;
