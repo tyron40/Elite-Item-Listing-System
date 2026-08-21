@@ -22,6 +22,7 @@ export interface LabelField {
   autoFit: boolean;
   customX?: number;
   customY?: number;
+  width?: number;
 }
 
 export interface LabelSize {
