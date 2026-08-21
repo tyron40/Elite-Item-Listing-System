@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera } from "lucide-react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import ProductResults from "@/components/ProductResults";
 import HistoryList from "@/components/HistoryList";
 import ImageCapture from "@/components/ImageCapture";
+import PrintLabels from "@/components/PrintLabels";
+import LabelQueue, { type QueueItem } from "@/components/LabelQueue";
 
 type QueryType = "model" | "barcode";
+type Page = "search" | "labels";
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -20,6 +23,9 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastQuery, setLastQuery] = useState<{ query: string; type: QueryType } | null>(null);
+  const [page, setPage] = useState<Page>("search");
+  const [labelProduct, setLabelProduct] = useState<ProductResult | null>(null);
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
 
   const fetchHistory = useCallback(async () => {
     const { data, error: fetchError } = await supabase
@@ -165,6 +171,23 @@ export default function App() {
     setHistory((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const handlePrintLabel = (product: ProductResult) => {
+    setLabelProduct(product);
+    setPage("labels");
+  };
+
+  const handleAddToQueue = (item: QueueItem) => {
+    setQueueItems((prev) => [...prev, item]);
+  };
+
+  const handleRemoveFromQueue = (id: string) => {
+    setQueueItems((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  const handleClearQueue = () => {
+    setQueueItems([]);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
       {/* Header */}
@@ -180,22 +203,49 @@ export default function App() {
             </div>
           </div>
 
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
-          >
-            <HistoryIcon className="h-4 w-4" />
-            <span className="hidden sm:inline">History</span>
-            {history.length > 0 && (
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
-                {history.length}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(page === "labels" ? "search" : "labels")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                page === "labels"
+                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              <Tag className="h-4 w-4" />
+              <span className="hidden sm:inline">Labels</span>
+            </button>
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">History</span>
+              {history.length > 0 && (
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+                  {history.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-6">
+        {page === "labels" ? (
+          <div className="space-y-4">
+            <PrintLabels productResult={labelProduct} onClose={() => setPage("search")} />
+            <LabelQueue
+              items={queueItems}
+              onAdd={handleAddToQueue}
+              onRemove={handleRemoveFromQueue}
+              onClear={handleClearQueue}
+              widthIn={2.25}
+              heightIn={1.25}
+            />
+          </div>
+        ) : (
+        <>
         {/* Search card */}
         <div className="rounded-2xl border border-gray-200/80 bg-white/90 p-5 shadow-lg shadow-gray-200/50 backdrop-blur-sm">
           <form onSubmit={handleSubmit} className="space-y-3">
@@ -322,7 +372,7 @@ export default function App() {
         {result && !loading && (
           <div className="mt-6">
             <h2 className="mb-3 text-sm font-semibold text-gray-700">Product Details</h2>
-            <ProductResults result={result} onRefresh={handleRefresh} refreshing={refreshing} />
+            <ProductResults result={result} onRefresh={handleRefresh} refreshing={refreshing} onPrintLabel={handlePrintLabel} />
           </div>
         )}
 
@@ -339,6 +389,8 @@ export default function App() {
               The AI will search the web, find the exact product, and calculate your listing price automatically
             </p>
           </div>
+        )}
+        </>
         )}
       </main>
 

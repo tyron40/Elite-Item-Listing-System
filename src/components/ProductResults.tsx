@@ -11,6 +11,7 @@ import {
   Calculator,
   DollarSign,
   BadgeCheck,
+  Printer,
 } from "lucide-react";
 import type { ProductResult } from "@/lib/supabase";
 
@@ -18,6 +19,7 @@ interface ProductResultsProps {
   result: ProductResult;
   onRefresh: () => void;
   refreshing: boolean;
+  onPrintLabel: (result: ProductResult) => void;
 }
 
 function useCopy() {
@@ -73,6 +75,7 @@ export default function ProductResults({
   result,
   onRefresh,
   refreshing,
+  onPrintLabel,
 }: ProductResultsProps) {
   const { copied, copy } = useCopy();
 
@@ -261,6 +264,15 @@ export default function ProductResults({
 
       {/* Copy all */}
       <CopyAllButton result={result} formatPrice={formatPrice} />
+
+      {/* Print Label button */}
+      <button
+        onClick={() => onPrintLabel(result)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 font-medium text-white transition hover:bg-gray-800"
+      >
+        <Printer className="h-4 w-4" />
+        Print Label
+      </button>
     </div>
   );
 }
