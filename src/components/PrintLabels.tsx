@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Printer, Plus, Trash2, Save, MapPin, Tag, Settings2,
-  Bold, Layers, TestTube, X, Check, ExternalLink,
-  PanelRightClose, PanelRightOpen, Star,
+  Bold, Layers, TestTube, X, ExternalLink,
+  PanelRightClose, PanelRightOpen, Star, Search, Pencil,
 } from "lucide-react";
 import type { ProductResult } from "@/lib/supabase";
 import {
@@ -13,7 +13,7 @@ import {
 import {
   getLabelPreferences, saveLabelPreferences,
   getSavedLocations, addSavedLocation, renameSavedLocation, deleteSavedLocation, setDefaultLocation,
-  getLabelTemplates, saveLabelTemplate, deleteLabelTemplate, setDefaultTemplate,
+  getLabelTemplates, saveLabelTemplate, updateLabelTemplate, deleteLabelTemplate, setDefaultTemplate,
   type SavedLocation, type LabelTemplate,
 } from "@/lib/labelDb";
 
@@ -40,6 +40,8 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);
   const [showTemplatePanel, setShowTemplatePanel] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  const [templateSearch, setTemplateSearch] = useState("");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
@@ -53,6 +55,7 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     fieldX: number;
     fieldY: number;
     fieldW: number;
+    moved: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -89,6 +92,11 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
 
       const tmpls = await getLabelTemplates();
       setTemplates(tmpls);
+      const defTmpl = tmpls.find((t) => t.is_default);
+      if (defTmpl && defTmpl.layout?.fields) {
+        setFields(defTmpl.layout.fields);
+        setActiveTemplateId(defTmpl.id);
+      }
       setPrefsLoaded(true);
     })();
   }, []);
@@ -151,8 +159,8 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
   const widthIn = toInches(currentWidth, currentUnit);
   const heightIn = toInches(currentHeight, currentUnit);
 
-  const maxPreviewW = 400;
-  const maxPreviewH = 200;
+  const maxPreviewW = 480;
+  const maxPreviewH = 280;
   const scale = Math.min(maxPreviewW / widthIn, maxPreviewH / heightIn);
   const previewW = widthIn * scale;
   const previewH = heightIn * scale;
@@ -177,6 +185,7 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
       fieldX: currentX,
       fieldY: currentY,
       fieldW: currentW,
+      moved: false,
     };
 
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -186,6 +195,7 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     if (!dragRef.current || !previewRef.current) return;
     const rect = previewRef.current.getBoundingClientRect();
     const drag = dragRef.current;
+    drag.moved = true;
 
     if (drag.mode === "move") {
       const dxPct = ((e.clientX - drag.startX) / rect.width) * 100;
@@ -267,7 +277,7 @@ body { background: #fff; }
   }
 
   function openPrintWindow(html: string) {
-    const printWindow = window.open("", "_blank", "width=800,height=600");
+    const printWindow = window.open("", "_blank", "width=1024,height=768");
     if (!printWindow) {
       alert("Please allow popups to print labels.");
       return null;
@@ -312,6 +322,14 @@ body { background: #fff; }
     setNewTemplateName("");
   }
 
+  async function handleUpdateTemplate(id?: string) {
+    const targetId = id ?? activeTemplateId;
+    if (!targetId) return;
+    await updateLabelTemplate(targetId, { fields });
+    const tmpls = await getLabelTemplates();
+    setTemplates(tmpls);
+  }
+
   async function handleAddLocation() {
     if (!newLocationName.trim()) return;
     await addSavedLocation(newLocationName.trim());
@@ -345,6 +363,7 @@ body { background: #fff; }
       setFields(tmpl.layout.fields);
       setSelectedFieldId(null);
       setEditingTextId(null);
+      setActiveTemplateId(tmpl.id);
     }
   }
 
@@ -352,6 +371,7 @@ body { background: #fff; }
     await deleteLabelTemplate(id);
     const tmpls = await getLabelTemplates();
     setTemplates(tmpls);
+    if (activeTemplateId === id) setActiveTemplateId(null);
   }
 
   async function handleSetDefaultTemplate(id: string) {
@@ -361,6 +381,10 @@ body { background: #fff; }
   }
 
   const activeFields = fields.filter((f) => f.enabled && f.value);
+  const activeTemplateName = templates.find((t) => t.id === activeTemplateId)?.name;
+  const filteredTemplates = templates.filter((t) =>
+    t.name.toLowerCase().includes(templateSearch.toLowerCase())
+  );
 
   return (
     <div className="relative space-y-4">
@@ -371,6 +395,11 @@ body { background: #fff; }
             <Tag className="h-4 w-4 text-white" />
           </div>
           <h2 className="text-base font-bold text-gray-900">Print Labels</h2>
+          {activeTemplateName && (
+            <span className="hidden rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 sm:inline">
+              {activeTemplateName}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -393,7 +422,7 @@ body { background: #fff; }
       </div>
 
       {/* Main content + slide-out template panel */}
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row">
         {/* Main column */}
         <div className="flex-1 space-y-4">
           {/* Label Preview — interactive */}
@@ -478,7 +507,7 @@ body { background: #fff; }
                       {isSelected && !isEditing && (
                         <div
                           onPointerDown={(e) => handleFieldPointerDown(e, field.id, "resize-right")}
-                          className="absolute top-1/2 -right-1 h-6 w-2 cursor-ew-resize rounded-full border border-white bg-emerald-500 shadow"
+                          className="absolute top-1/2 -right-1.5 h-8 w-2.5 cursor-ew-resize rounded-full border border-white bg-emerald-500 shadow"
                           style={{ transform: "translate(50%, -50%)" }}
                         />
                       )}
@@ -487,7 +516,7 @@ body { background: #fff; }
                       {isSelected && !isEditing && (
                         <div
                           onPointerDown={(e) => handleFieldPointerDown(e, field.id, "resize-corner")}
-                          className="absolute -right-1 -bottom-1 h-3 w-3 cursor-nwse-resize rounded-full border-2 border-white bg-emerald-500 shadow"
+                          className="absolute -right-1.5 -bottom-1.5 h-4 w-4 cursor-nwse-resize rounded-full border-2 border-white bg-emerald-500 shadow"
                           style={{ transform: "translate(50%, 50%)" }}
                         />
                       )}
@@ -497,10 +526,10 @@ body { background: #fff; }
                         <button
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
-                          className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow"
+                          className="absolute -left-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow"
                           style={{ transform: "translate(-50%, -50%)" }}
                         >
-                          <X className="h-2.5 w-2.5" />
+                          <X className="h-3 w-3" />
                         </button>
                       )}
                     </div>
@@ -514,7 +543,7 @@ body { background: #fff; }
               </div>
             </div>
             <p className="mt-2 text-center text-xs text-gray-400">
-              Double-click to add text &middot; Click to select &middot; Drag to move &middot; Edge or corner to resize
+              Double-click to add text &middot; Click to select &middot; Drag center to move &middot; Edge or corner to resize
             </p>
           </div>
 
@@ -596,7 +625,7 @@ body { background: #fff; }
               <Settings2 className="h-3.5 w-3.5" />
               Label Size
             </label>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
               {LABEL_PRESETS.map((preset) => (
                 <button
                   key={preset.id}
@@ -740,6 +769,12 @@ body { background: #fff; }
                 className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
                 <Save className="h-4 w-4" /> Save as Default Layout
               </button>
+              {activeTemplateId && (
+                <button onClick={() => handleUpdateTemplate()}
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-100">
+                  <Save className="h-4 w-4" /> Save to "{activeTemplateName}"
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -764,7 +799,7 @@ body { background: #fff; }
 
         {/* Slide-out template panel */}
         {showTemplatePanel && (
-          <div className="w-72 shrink-0 space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="w-full shrink-0 space-y-3 rounded-xl border border-gray-200 bg-white p-4 lg:w-80">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
                 <Layers className="h-4 w-4" />
@@ -792,25 +827,42 @@ body { background: #fff; }
                 onClick={handleSaveTemplate}
                 disabled={!newTemplateName.trim()}
                 className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                title="Create new template"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
 
+            {/* Search bar */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={templateSearch}
+                onChange={(e) => setTemplateSearch(e.target.value)}
+                placeholder="Search templates..."
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-2 text-sm outline-none focus:border-emerald-400 focus:bg-white"
+              />
+            </div>
+
             {/* Template list */}
-            <div className="space-y-1.5">
-              {templates.length === 0 && (
+            <div className="max-h-96 space-y-1.5 overflow-y-auto">
+              {filteredTemplates.length === 0 && (
                 <p className="py-4 text-center text-xs text-gray-400">
-                  No templates yet. Design your label and save it as a template.
+                  {templates.length === 0
+                    ? "No templates yet. Design your label and save it as a template."
+                    : "No templates match your search."}
                 </p>
               )}
-              {templates.map((tmpl) => (
+              {filteredTemplates.map((tmpl) => (
                 <div
                   key={tmpl.id}
                   className={`group flex items-center gap-2 rounded-lg border p-2 transition ${
-                    tmpl.is_default
-                      ? "border-emerald-200 bg-emerald-50/40"
-                      : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                    activeTemplateId === tmpl.id
+                      ? "border-emerald-300 bg-emerald-50/60 ring-1 ring-emerald-200"
+                      : tmpl.is_default
+                        ? "border-emerald-200 bg-emerald-50/40"
+                        : "border-gray-200 bg-gray-50 hover:bg-gray-100"
                   }`}
                 >
                   <button
@@ -832,6 +884,13 @@ body { background: #fff; }
                     </button>
                   )}
                   <button
+                    onClick={() => handleUpdateTemplate(tmpl.id)}
+                    className="text-gray-300 transition hover:text-emerald-500"
+                    title="Save current edits to this template"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
                     onClick={() => handleDeleteTemplate(tmpl.id)}
                     className="text-gray-300 transition hover:text-red-500"
                   >
@@ -842,7 +901,7 @@ body { background: #fff; }
             </div>
 
             <p className="border-t border-gray-100 pt-2 text-center text-xs text-gray-400">
-              Click a template to load it into the preview
+              Click a template to load it &middot; Pencil saves edits to it
             </p>
           </div>
         )}

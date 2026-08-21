@@ -121,6 +121,13 @@ export async function renameLabelTemplate(id: string, name: string): Promise<voi
     .eq("id", id);
 }
 
+export async function updateLabelTemplate(id: string, layout: { fields: LabelField[] }): Promise<void> {
+  await supabase
+    .from("label_templates")
+    .update({ layout, updated_at: new Date().toISOString() })
+    .eq("id", id);
+}
+
 export async function deleteLabelTemplate(id: string): Promise<void> {
   await supabase
     .from("label_templates")

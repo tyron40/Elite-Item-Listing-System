@@ -192,7 +192,7 @@ export default function App() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-gray-200/60 bg-white/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
               <PackageSearch className="h-5 w-5 text-white" />
@@ -231,7 +231,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-4 py-6">
         {page === "labels" ? (
           <div className="space-y-4">
             <PrintLabels productResult={labelProduct} onClose={() => setPage("search")} />
