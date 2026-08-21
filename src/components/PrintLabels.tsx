@@ -396,7 +396,7 @@ body { background: #fff; }
           </div>
           <h2 className="text-base font-bold text-gray-900">Print Labels</h2>
           {activeTemplateName && (
-            <span className="hidden rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 sm:inline">
+            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
               {activeTemplateName}
             </span>
           )}

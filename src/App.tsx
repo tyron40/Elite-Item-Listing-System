@@ -213,14 +213,14 @@ export default function App() {
               }`}
             >
               <Tag className="h-4 w-4" />
-              <span className="hidden sm:inline">Labels</span>
+              <span>Labels</span>
             </button>
             <button
               onClick={() => setShowHistory(!showHistory)}
               className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
             >
               <HistoryIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">History</span>
+              <span>History</span>
               {history.length > 0 && (
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
                   {history.length}
@@ -271,7 +271,7 @@ export default function App() {
                 title="Identify by photo"
               >
                 <Camera className="h-4 w-4" />
-                <span className="hidden sm:inline">Photo</span>
+                <span>Photo</span>
               </button>
               <button
                 type="button"
@@ -280,7 +280,7 @@ export default function App() {
                 title="Scan barcode"
               >
                 <ScanLine className="h-4 w-4" />
-                <span className="hidden sm:inline">Scan</span>
+                <span>Scan</span>
               </button>
             </div>
 
