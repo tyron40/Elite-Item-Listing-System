@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Printer, Plus, Trash2, Save, MapPin, Tag, Settings2,
-  Type, Bold, Layers, TestTube, X, Check, ExternalLink,
+  Bold, Layers, TestTube, X, Check, ExternalLink,
+  PanelRightClose, PanelRightOpen, Star,
 } from "lucide-react";
 import type { ProductResult } from "@/lib/supabase";
 import {
@@ -21,7 +22,7 @@ interface PrintLabelsProps {
   onClose?: () => void;
 }
 
-type DragMode = "move" | "resize" | null;
+type DragMode = "move" | "resize-right" | "resize-corner" | null;
 
 export default function PrintLabels({ productResult, onClose }: PrintLabelsProps) {
   const [fields, setFields] = useState<LabelField[]>(DEFAULT_FIELDS.map((f) => ({ ...f })));
@@ -37,7 +38,7 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
   const [showLocationManager, setShowLocationManager] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState("");
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);
-  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [showTemplatePanel, setShowTemplatePanel] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -54,7 +55,6 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     fieldW: number;
   } | null>(null);
 
-  // Load preferences and templates on mount
   useEffect(() => {
     (async () => {
       const prefs = await getLabelPreferences();
@@ -93,7 +93,6 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     })();
   }, []);
 
-  // Auto-populate from product result
   useEffect(() => {
     if (productResult && prefsLoaded) {
       const shortTitle = shortenTitle(productResult.title);
@@ -107,7 +106,6 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     }
   }, [productResult, prefsLoaded]);
 
-  // Auto-populate location when default changes
   useEffect(() => {
     if (defaultLocation && prefsLoaded) {
       updateFieldValue("location", defaultLocation);
@@ -159,7 +157,6 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
   const previewW = widthIn * scale;
   const previewH = heightIn * scale;
 
-  // Pointer handlers for drag (move) and resize
   function handleFieldPointerDown(e: React.PointerEvent, fieldId: string, mode: DragMode) {
     e.preventDefault();
     e.stopPropagation();
@@ -198,7 +195,7 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
       newX = Math.max(0, Math.min(100, newX));
       newY = Math.max(0, Math.min(100, newY));
       updateField(drag.fieldId, { customX: newX, customY: newY });
-    } else if (drag.mode === "resize") {
+    } else if (drag.mode === "resize-right" || drag.mode === "resize-corner") {
       const dxPct = ((e.clientX - drag.startX) / rect.width) * 100;
       let newW = drag.fieldW + dxPct;
       newW = Math.max(15, Math.min(100, newW));
@@ -228,7 +225,6 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
     }
   }
 
-  // Print functions
   function generatePrintHtml(printFields: LabelField[], wIn: number, hIn: number, qty: number): string {
     const fieldsHtml = printFields.map((f) => {
       const style = getPositionStyle(f.position, f.customX, f.customY);
@@ -271,10 +267,10 @@ body { background: #fff; }
   }
 
   function openPrintWindow(html: string) {
-    const printWindow = window.open("", "_blank", "width=400,height=300");
+    const printWindow = window.open("", "_blank", "width=800,height=600");
     if (!printWindow) {
       alert("Please allow popups to print labels.");
-      return;
+      return null;
     }
     printWindow.document.write(html);
     printWindow.document.close();
@@ -297,7 +293,6 @@ body { background: #fff; }
     }
   }
 
-  // Save / load
   async function handleSaveLayout() {
     await saveLabelPreferences({
       label_width: currentWidth,
@@ -348,6 +343,8 @@ body { background: #fff; }
   async function handleApplyTemplate(tmpl: LabelTemplate) {
     if (tmpl.layout?.fields) {
       setFields(tmpl.layout.fields);
+      setSelectedFieldId(null);
+      setEditingTextId(null);
     }
   }
 
@@ -366,7 +363,7 @@ body { background: #fff; }
   const activeFields = fields.filter((f) => f.enabled && f.value);
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -375,489 +372,480 @@ body { background: #fff; }
           </div>
           <h2 className="text-base font-bold text-gray-900">Print Labels</h2>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
-            <X className="h-5 w-5" />
-          </button>
-        )}
-      </div>
-
-      {/* Label Item Title */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-gray-500">
-          <Type className="h-3.5 w-3.5" />
-          Label Item Title
-        </label>
-        <textarea
-          value={fields.find((f) => f.id === "title")?.value || ""}
-          onChange={(e) => updateFieldValue("title", e.target.value)}
-          rows={2}
-          className="w-full rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-sm text-gray-800 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-          placeholder="Shortened item title for the label..."
-        />
-        {productResult && (
-          <p className="mt-1.5 text-xs text-gray-400">
-            Listing title: <span className="text-gray-500">{productResult.title}</span>
-          </p>
-        )}
-      </div>
-
-      {/* Label Preview — interactive */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-500">Label Preview</span>
-          <div className="flex items-center gap-3">
-            {selectedFieldId && (
-              <button
-                onClick={() => removeField(selectedFieldId)}
-                className="flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-red-200 transition hover:bg-red-100"
-              >
-                <Trash2 className="h-3 w-3" /> Delete
-              </button>
-            )}
-            <span className="text-xs text-gray-400">
-              {currentWidth}{currentUnit === "mm" ? "mm" : '"'} × {currentHeight}{currentUnit === "mm" ? "mm" : '"'}
-            </span>
-          </div>
-        </div>
-        <div className="flex justify-center rounded-lg bg-gray-50 p-6">
-          <div
-            ref={previewRef}
-            onPointerMove={handlePreviewPointerMove}
-            onPointerUp={handlePreviewPointerUp}
-            onPointerLeave={handlePreviewPointerUp}
-            onDoubleClick={handlePreviewDoubleClick}
-            onClick={handlePreviewClick}
-            className="relative cursor-crosshair border-2 border-gray-300 bg-white shadow-sm touch-none"
-            style={{ width: `${previewW}px`, height: `${previewH}px` }}
-          >
-            {activeFields.map((field) => {
-              const isSelected = selectedFieldId === field.id;
-              const isEditing = editingTextId === field.id;
-              const style = getPositionStyle(field.position, field.customX, field.customY);
-              const widthStyle = field.width ? { width: `${field.width}%` } : {};
-
-              return (
-                <div
-                  key={field.id}
-                  onPointerDown={(e) => handleFieldPointerDown(e, field.id, "move")}
-                  onClick={(e) => { e.stopPropagation(); setSelectedFieldId(field.id); }}
-                  onDoubleClick={(e) => { e.stopPropagation(); setEditingTextId(field.id); }}
-                  style={{ ...style, ...widthStyle }}
-                  className={`cursor-move select-none px-1 transition ${
-                    isSelected ? "ring-2 ring-emerald-400" : "ring-1 ring-transparent hover:ring-1 hover:ring-emerald-200"
-                  } ${isEditing ? "ring-2 ring-blue-400" : ""}`}
-                >
-                  {isEditing ? (
-                    <textarea
-                      autoFocus
-                      value={field.value}
-                      onChange={(e) => updateFieldValue(field.id, e.target.value)}
-                      onBlur={() => setEditingTextId(null)}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      rows={Math.min(4, field.value.split("\n").length + 1)}
-                      className="w-full resize-none border-0 bg-transparent p-0 text-gray-800 outline-none"
-                      style={{
-                        fontSize: `${Math.max(6, field.fontSize * (scale / 72))}px`,
-                        fontWeight: field.bold ? "bold" : "normal",
-                        lineHeight: 1.1,
-                      }}
-                    />
-                  ) : (
-                    field.value.split("\n").map((line, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          fontSize: `${Math.max(6, field.fontSize * (scale / 72))}px`,
-                          fontWeight: field.bold ? "bold" : "normal",
-                          lineHeight: 1.1,
-                          whiteSpace: "pre-wrap",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {line || "\u00A0"}
-                      </div>
-                    ))
-                  )}
-
-                  {/* Resize handle */}
-                  {isSelected && !isEditing && (
-                    <div
-                      onPointerDown={(e) => handleFieldPointerDown(e, field.id, "resize")}
-                      className="absolute -right-1 -top-1 h-3 w-3 cursor-nwse-resize rounded-full border-2 border-white bg-emerald-500 shadow"
-                      style={{ transform: "translate(50%, -50%)" }}
-                    />
-                  )}
-
-                  {/* Delete button on selected */}
-                  {isSelected && !isEditing && (
-                    <button
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
-                      className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow"
-                      style={{ transform: "translate(-50%, -50%)" }}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            {activeFields.length === 0 && (
-              <div className="pointer-events-none flex h-full items-center justify-center text-xs text-gray-300">
-                Double-click to add text
-              </div>
-            )}
-          </div>
-        </div>
-        <p className="mt-2 text-center text-xs text-gray-400">
-          Double-click to add text &middot; Click to select &middot; Drag to move &middot; Corner to resize
-        </p>
-      </div>
-
-      {/* Selected field controls */}
-      {selectedFieldId && (() => {
-        const field = fields.find((f) => f.id === selectedFieldId);
-        if (!field) return null;
-        return (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-600">Editing: {field.label}</span>
-              <button
-                onClick={() => removeField(field.id)}
-                className="flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-red-200 transition hover:bg-red-100"
-              >
-                <Trash2 className="h-3 w-3" /> Delete Field
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs text-gray-400">Text</label>
-                <input
-                  type="text"
-                  value={field.value}
-                  onChange={(e) => updateFieldValue(field.id, e.target.value)}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-gray-400">Position</label>
-                <select
-                  value={field.position}
-                  onChange={(e) => updateField(field.id, { position: e.target.value as FieldPosition, customX: undefined, customY: undefined })}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
-                >
-                  {POSITION_PRESETS.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1">
-                  <label className="mb-1 block text-xs text-gray-400">Font Size</label>
-                  <input
-                    type="range" min="6" max="24"
-                    value={field.fontSize}
-                    onChange={(e) => updateField(field.id, { fontSize: Number(e.target.value) })}
-                    className="w-full"
-                  />
-                </div>
-                <span className="text-xs text-gray-500">{field.fontSize}pt</span>
-              </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => updateField(field.id, { bold: !field.bold })}
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                    field.bold ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  <Bold className="h-3.5 w-3.5" /> Bold
-                </button>
-                <button
-                  onClick={() => updateField(field.id, { autoFit: !field.autoFit })}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                    field.autoFit ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  Auto Fit
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Label Size Selector */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-500">
-          <Settings2 className="h-3.5 w-3.5" />
-          Label Size
-        </label>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {LABEL_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => { setLabelSize(preset); setShowCustomSize(false); }}
-              className={`rounded-lg px-2 py-2 text-xs font-medium transition ${
-                labelSize.id === preset.id
-                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                  : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              {preset.name}
-            </button>
-          ))}
+        <div className="flex items-center gap-1">
           <button
-            onClick={() => { setLabelSize({ id: "custom", name: "Custom", width: 0, height: 0, unit: "in" }); setShowCustomSize(true); }}
-            className={`rounded-lg px-2 py-2 text-xs font-medium transition ${
-              showCustomSize ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+            onClick={() => setShowTemplatePanel(!showTemplatePanel)}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+              showTemplatePanel
+                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            Custom
+            {showTemplatePanel ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+            Templates
           </button>
+          {onClose && (
+            <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
+              <X className="h-5 w-5" />
+            </button>
+          )}
         </div>
-        {showCustomSize && (
-          <div className="mt-3 flex flex-wrap items-end gap-2">
-            <div>
-              <label className="mb-1 block text-xs text-gray-400">Width</label>
-              <input type="number" value={customWidth} onChange={(e) => setCustomWidth(e.target.value)}
-                className="w-20 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-400">Height</label>
-              <input type="number" value={customHeight} onChange={(e) => setCustomHeight(e.target.value)}
-                className="w-20 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-gray-400">Unit</label>
-              <select value={customUnit} onChange={(e) => setCustomUnit(e.target.value as LabelUnit)}
-                className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400">
-                <option value="in">inches</option>
-                <option value="mm">mm</option>
-              </select>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Location */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-500">
-          <MapPin className="h-3.5 w-3.5" />
-          Storage Location
-        </label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={fields.find((f) => f.id === "location")?.value || ""}
-            onChange={(e) => updateFieldValue("location", e.target.value)}
-            list="saved-locations"
-            placeholder="e.g. Shelf A, Bin 5..."
-            className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-          />
-          <datalist id="saved-locations">
-            {locations.map((loc) => (<option key={loc.id} value={loc.name} />))}
-          </datalist>
-          <button onClick={() => setShowLocationManager(!showLocationManager)}
-            className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
-            Manage
-          </button>
-        </div>
-        {defaultLocation && (
-          <p className="mt-1.5 text-xs text-gray-400">Default: <span className="text-gray-500">{defaultLocation}</span></p>
-        )}
-        {showLocationManager && (
-          <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3">
-            <div className="flex gap-2">
-              <input type="text" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)}
-                placeholder="New location name..."
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400" />
-              <button onClick={handleAddLocation}
-                className="flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
-                <Plus className="h-3.5 w-3.5" /> Add
-              </button>
+      {/* Main content + slide-out template panel */}
+      <div className="flex gap-4">
+        {/* Main column */}
+        <div className="flex-1 space-y-4">
+          {/* Label Preview — interactive */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-500">Label Preview</span>
+              <div className="flex items-center gap-3">
+                {selectedFieldId && (
+                  <button
+                    onClick={() => removeField(selectedFieldId)}
+                    className="flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-red-200 transition hover:bg-red-100"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                )}
+                <span className="text-xs text-gray-400">
+                  {currentWidth}{currentUnit === "mm" ? "mm" : '"'} × {currentHeight}{currentUnit === "mm" ? "mm" : '"'}
+                </span>
+              </div>
             </div>
-            <div className="space-y-1">
-              {locations.map((loc) => (
-                <div key={loc.id} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5">
-                  <input type="text" defaultValue={loc.name}
-                    onBlur={(e) => e.target.value !== loc.name && handleRenameLocation(loc.id, e.target.value)}
-                    className="flex-1 bg-transparent text-sm outline-none" />
-                  {loc.is_default ? (
-                    <span className="text-xs font-medium text-emerald-600">Default</span>
-                  ) : (
-                    <button onClick={() => handleSetDefaultLocation(loc.id)} className="text-xs text-gray-400 hover:text-emerald-600">
-                      Set Default
-                    </button>
-                  )}
-                  <button onClick={() => handleDeleteLocation(loc.id)} className="text-gray-300 hover:text-red-500">
-                    <Trash2 className="h-3.5 w-3.5" />
+            <div className="flex justify-center rounded-lg bg-gray-50 p-6">
+              <div
+                ref={previewRef}
+                onPointerMove={handlePreviewPointerMove}
+                onPointerUp={handlePreviewPointerUp}
+                onPointerLeave={handlePreviewPointerUp}
+                onDoubleClick={handlePreviewDoubleClick}
+                onClick={handlePreviewClick}
+                className="relative cursor-crosshair border-2 border-gray-300 bg-white shadow-sm touch-none"
+                style={{ width: `${previewW}px`, height: `${previewH}px` }}
+              >
+                {activeFields.map((field) => {
+                  const isSelected = selectedFieldId === field.id;
+                  const isEditing = editingTextId === field.id;
+                  const style = getPositionStyle(field.position, field.customX, field.customY);
+                  const widthStyle = field.width ? { width: `${field.width}%` } : {};
+
+                  return (
+                    <div
+                      key={field.id}
+                      onPointerDown={(e) => handleFieldPointerDown(e, field.id, "move")}
+                      onClick={(e) => { e.stopPropagation(); setSelectedFieldId(field.id); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); setEditingTextId(field.id); }}
+                      style={{ ...style, ...widthStyle }}
+                      className={`cursor-move select-none px-1 transition ${
+                        isSelected ? "ring-2 ring-emerald-400" : "ring-1 ring-transparent hover:ring-1 hover:ring-emerald-200"
+                      } ${isEditing ? "ring-2 ring-blue-400" : ""}`}
+                    >
+                      {isEditing ? (
+                        <textarea
+                          autoFocus
+                          value={field.value}
+                          onChange={(e) => updateFieldValue(field.id, e.target.value)}
+                          onBlur={() => setEditingTextId(null)}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          rows={Math.min(4, field.value.split("\n").length + 1)}
+                          className="w-full resize-none border-0 bg-transparent p-0 text-gray-800 outline-none"
+                          style={{
+                            fontSize: `${Math.max(6, field.fontSize * (scale / 72))}px`,
+                            fontWeight: field.bold ? "bold" : "normal",
+                            lineHeight: 1.1,
+                          }}
+                        />
+                      ) : (
+                        field.value.split("\n").map((line, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              fontSize: `${Math.max(6, field.fontSize * (scale / 72))}px`,
+                              fontWeight: field.bold ? "bold" : "normal",
+                              lineHeight: 1.1,
+                              whiteSpace: "pre-wrap",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {line || "\u00A0"}
+                          </div>
+                        ))
+                      )}
+
+                      {/* Right-edge resize handle */}
+                      {isSelected && !isEditing && (
+                        <div
+                          onPointerDown={(e) => handleFieldPointerDown(e, field.id, "resize-right")}
+                          className="absolute top-1/2 -right-1 h-6 w-2 cursor-ew-resize rounded-full border border-white bg-emerald-500 shadow"
+                          style={{ transform: "translate(50%, -50%)" }}
+                        />
+                      )}
+
+                      {/* Corner resize handle */}
+                      {isSelected && !isEditing && (
+                        <div
+                          onPointerDown={(e) => handleFieldPointerDown(e, field.id, "resize-corner")}
+                          className="absolute -right-1 -bottom-1 h-3 w-3 cursor-nwse-resize rounded-full border-2 border-white bg-emerald-500 shadow"
+                          style={{ transform: "translate(50%, 50%)" }}
+                        />
+                      )}
+
+                      {/* Delete button */}
+                      {isSelected && !isEditing && (
+                        <button
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
+                          className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow"
+                          style={{ transform: "translate(-50%, -50%)" }}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {activeFields.length === 0 && (
+                  <div className="pointer-events-none flex h-full items-center justify-center text-xs text-gray-300">
+                    Double-click to add text
+                  </div>
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-center text-xs text-gray-400">
+              Double-click to add text &middot; Click to select &middot; Drag to move &middot; Edge or corner to resize
+            </p>
+          </div>
+
+          {/* Selected field controls */}
+          {selectedFieldId && (() => {
+            const field = fields.find((f) => f.id === selectedFieldId);
+            if (!field) return null;
+            return (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-600">Editing text</span>
+                  <button
+                    onClick={() => removeField(field.id)}
+                    className="flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-red-200 transition hover:bg-red-100"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
                   </button>
                 </div>
-              ))}
-              {locations.length === 0 && <p className="text-xs text-gray-400">No saved locations yet.</p>}
-            </div>
-          </div>
-        )}
-      </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-gray-400">Text</label>
+                    <input
+                      type="text"
+                      value={field.value}
+                      onChange={(e) => updateFieldValue(field.id, e.target.value)}
+                      className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-gray-400">Position</label>
+                    <select
+                      value={field.position}
+                      onChange={(e) => updateField(field.id, { position: e.target.value as FieldPosition, customX: undefined, customY: undefined })}
+                      className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                    >
+                      {POSITION_PRESETS.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <label className="mb-1 block text-xs text-gray-400">Font Size</label>
+                      <input
+                        type="range" min="6" max="24"
+                        value={field.fontSize}
+                        onChange={(e) => updateField(field.id, { fontSize: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500">{field.fontSize}pt</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => updateField(field.id, { bold: !field.bold })}
+                      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                        field.bold ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      <Bold className="h-3.5 w-3.5" /> Bold
+                    </button>
+                    <button
+                      onClick={() => updateField(field.id, { autoFit: !field.autoFit })}
+                      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                        field.autoFit ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      Auto Fit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
-      {/* Text Fields list */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-gray-500">
-            <Layers className="h-3.5 w-3.5" />
-            Text Fields
-          </span>
-          <button onClick={() => addInlineField(50, 50)}
-            className="flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-200">
-            <Plus className="h-3.5 w-3.5" /> Add Text
-          </button>
-        </div>
-        <div className="space-y-2">
-          {fields.map((field) => (
-            <div key={field.id}
-              className={`flex items-center gap-2 rounded-lg border p-2.5 transition ${
-                selectedFieldId === field.id ? "border-emerald-300 bg-emerald-50/30" : "border-gray-200 bg-gray-50"
-              }`}>
-              <button
-                onClick={() => updateField(field.id, { enabled: !field.enabled })}
-                className={`flex h-5 w-5 items-center justify-center rounded transition ${
-                  field.enabled ? "bg-emerald-500 text-white" : "bg-gray-200 text-gray-400"
-                }`}>
-                {field.enabled && <Check className="h-3 w-3" />}
-              </button>
-              <span className="flex-1 truncate text-sm font-medium text-gray-700">{field.label}</span>
-              {field.id.startsWith("text-") && (
-                <button onClick={() => removeField(field.id)} className="text-gray-300 hover:text-red-500">
-                  <Trash2 className="h-3.5 w-3.5" />
+          {/* Label Size Selector */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-500">
+              <Settings2 className="h-3.5 w-3.5" />
+              Label Size
+            </label>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+              {LABEL_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => { setLabelSize(preset); setShowCustomSize(false); }}
+                  className={`rounded-lg px-2 py-2 text-xs font-medium transition ${
+                    labelSize.id === preset.id
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                      : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {preset.name}
                 </button>
-              )}
+              ))}
               <button
-                onClick={() => setSelectedFieldId(selectedFieldId === field.id ? null : field.id)}
-                className="text-gray-400 hover:text-gray-600">
-                <Settings2 className="h-3.5 w-3.5" />
+                onClick={() => { setLabelSize({ id: "custom", name: "Custom", width: 0, height: 0, unit: "in" }); setShowCustomSize(true); }}
+                className={`rounded-lg px-2 py-2 text-xs font-medium transition ${
+                  showCustomSize ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Custom
               </button>
             </div>
-          ))}
-        </div>
-      </div>
+            {showCustomSize && (
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="mb-1 block text-xs text-gray-400">Width</label>
+                  <input type="number" value={customWidth} onChange={(e) => setCustomWidth(e.target.value)}
+                    className="w-20 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-400">Height</label>
+                  <input type="number" value={customHeight} onChange={(e) => setCustomHeight(e.target.value)}
+                    className="w-20 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-400">Unit</label>
+                  <select value={customUnit} onChange={(e) => setCustomUnit(e.target.value as LabelUnit)}
+                    className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400">
+                    <option value="in">inches</option>
+                    <option value="mm">mm</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
 
-      {/* Templates — multiple saved layouts */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-gray-500">
-            <Layers className="h-3.5 w-3.5" />
-            Saved Layouts
-          </span>
-          <button onClick={() => setShowTemplateManager(!showTemplateManager)}
-            className="text-xs font-medium text-gray-500 hover:text-emerald-600">
-            {showTemplateManager ? "Hide" : "Manage"}
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {templates.map((tmpl) => (
-            <div key={tmpl.id} className="flex items-center gap-1">
-              <button onClick={() => handleApplyTemplate(tmpl)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                  tmpl.is_default ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                }`}>
-                {tmpl.name}
-              </button>
-            </div>
-          ))}
-          {templates.length === 0 && <p className="text-xs text-gray-400">No saved layouts yet.</p>}
-        </div>
-        {showTemplateManager && (
-          <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3">
+          {/* Location */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-gray-500">
+              <MapPin className="h-3.5 w-3.5" />
+              Storage Location
+            </label>
             <div className="flex gap-2">
-              <input type="text" value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)}
-                placeholder="Layout name..."
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400" />
-              <button onClick={handleSaveTemplate}
-                className="flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
-                <Save className="h-3.5 w-3.5" /> Save Current
+              <input
+                type="text"
+                value={fields.find((f) => f.id === "location")?.value || ""}
+                onChange={(e) => updateFieldValue("location", e.target.value)}
+                list="saved-locations"
+                placeholder="e.g. Shelf A, Bin 5..."
+                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              />
+              <datalist id="saved-locations">
+                {locations.map((loc) => (<option key={loc.id} value={loc.name} />))}
+              </datalist>
+              <button onClick={() => setShowLocationManager(!showLocationManager)}
+                className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
+                Manage
               </button>
             </div>
-            <div className="space-y-1">
+            {defaultLocation && (
+              <p className="mt-1.5 text-xs text-gray-400">Default: <span className="text-gray-500">{defaultLocation}</span></p>
+            )}
+            {showLocationManager && (
+              <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3">
+                <div className="flex gap-2">
+                  <input type="text" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)}
+                    placeholder="New location name..."
+                    className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400" />
+                  <button onClick={handleAddLocation}
+                    className="flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {locations.map((loc) => (
+                    <div key={loc.id} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5">
+                      <input type="text" defaultValue={loc.name}
+                        onBlur={(e) => e.target.value !== loc.name && handleRenameLocation(loc.id, e.target.value)}
+                        className="flex-1 bg-transparent text-sm outline-none" />
+                      {loc.is_default ? (
+                        <span className="text-xs font-medium text-emerald-600">Default</span>
+                      ) : (
+                        <button onClick={() => handleSetDefaultLocation(loc.id)} className="text-xs text-gray-400 hover:text-emerald-600">
+                          Set Default
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteLocation(loc.id)} className="text-gray-300 hover:text-red-500">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {locations.length === 0 && <p className="text-xs text-gray-400">No saved locations yet.</p>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Print Controls */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-500">Print Options</span>
+            </div>
+
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm text-gray-600">Auto Create Label</span>
+              <button onClick={() => setAutoCreateLabel(!autoCreateLabel)}
+                className={`relative h-6 w-11 rounded-full transition ${autoCreateLabel ? "bg-emerald-500" : "bg-gray-300"}`}>
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${autoCreateLabel ? "left-[22px]" : "left-0.5"}`} />
+              </button>
+            </div>
+
+            <div className="mb-3">
+              <label className="mb-1.5 block text-sm font-medium text-gray-500">Quantity</label>
+              <div className="flex flex-wrap items-center gap-2">
+                {[1, 2, 3, 5, 10].map((q) => (
+                  <button key={q} onClick={() => setQuantity(q)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                      quantity === q ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                    }`}>
+                    {q}
+                  </button>
+                ))}
+                <input type="number" value={quantity}
+                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
+              </div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button onClick={handleSaveLayout}
+                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
+                <Save className="h-4 w-4" /> Save as Default Layout
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => handlePrint(true, false)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
+                <Printer className="h-5 w-5" /> Print Label
+              </button>
+              <button onClick={() => handlePrint(false, false)}
+                className="flex items-center justify-center gap-2 rounded-xl bg-gray-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-600">
+                <ExternalLink className="h-4 w-4" /> Open in Window
+              </button>
+              <button onClick={() => handlePrint(true, true)}
+                className="flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-800">
+                <TestTube className="h-4 w-4" /> Test Label
+              </button>
+            </div>
+            <p className="mt-2 text-center text-xs text-gray-400">
+              Print Scale: 100% / Actual Size &middot; Margins: None
+            </p>
+          </div>
+        </div>
+
+        {/* Slide-out template panel */}
+        {showTemplatePanel && (
+          <div className="w-72 shrink-0 space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-700">
+                <Layers className="h-4 w-4" />
+                Templates
+              </span>
+              <button
+                onClick={() => setShowTemplatePanel(false)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* New template */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveTemplate()}
+                placeholder="Name this template..."
+                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400 focus:bg-white"
+              />
+              <button
+                onClick={handleSaveTemplate}
+                disabled={!newTemplateName.trim()}
+                className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Template list */}
+            <div className="space-y-1.5">
+              {templates.length === 0 && (
+                <p className="py-4 text-center text-xs text-gray-400">
+                  No templates yet. Design your label and save it as a template.
+                </p>
+              )}
               {templates.map((tmpl) => (
-                <div key={tmpl.id} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5">
-                  <span className="flex-1 text-sm text-gray-700">{tmpl.name}</span>
-                  {tmpl.is_default ? (
-                    <span className="text-xs font-medium text-emerald-600">Default</span>
-                  ) : (
-                    <button onClick={() => handleSetDefaultTemplate(tmpl.id)} className="text-xs text-gray-400 hover:text-emerald-600">
-                      Set Default
+                <div
+                  key={tmpl.id}
+                  className={`group flex items-center gap-2 rounded-lg border p-2 transition ${
+                    tmpl.is_default
+                      ? "border-emerald-200 bg-emerald-50/40"
+                      : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                  }`}
+                >
+                  <button
+                    onClick={() => handleApplyTemplate(tmpl)}
+                    className="flex flex-1 items-center gap-2 text-left"
+                  >
+                    <span className="flex-1 truncate text-sm font-medium text-gray-700">{tmpl.name}</span>
+                    {tmpl.is_default && (
+                      <Star className="h-3.5 w-3.5 fill-emerald-500 text-emerald-500" />
+                    )}
+                  </button>
+                  {!tmpl.is_default && (
+                    <button
+                      onClick={() => handleSetDefaultTemplate(tmpl.id)}
+                      className="text-gray-300 transition hover:text-emerald-500"
+                      title="Set as default"
+                    >
+                      <Star className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  <button onClick={() => handleDeleteTemplate(tmpl.id)} className="text-gray-300 hover:text-red-500">
+                  <button
+                    onClick={() => handleDeleteTemplate(tmpl.id)}
+                    className="text-gray-300 transition hover:text-red-500"
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               ))}
             </div>
+
+            <p className="border-t border-gray-100 pt-2 text-center text-xs text-gray-400">
+              Click a template to load it into the preview
+            </p>
           </div>
         )}
-      </div>
-
-      {/* Print Controls */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-500">Print Options</span>
-        </div>
-
-        {/* Auto Create Label toggle */}
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm text-gray-600">Auto Create Label</span>
-          <button onClick={() => setAutoCreateLabel(!autoCreateLabel)}
-            className={`relative h-6 w-11 rounded-full transition ${autoCreateLabel ? "bg-emerald-500" : "bg-gray-300"}`}>
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${autoCreateLabel ? "left-[22px]" : "left-0.5"}`} />
-          </button>
-        </div>
-
-        {/* Quantity */}
-        <div className="mb-3">
-          <label className="mb-1.5 block text-sm font-medium text-gray-500">Quantity</label>
-          <div className="flex flex-wrap items-center gap-2">
-            {[1, 2, 3, 5, 10].map((q) => (
-              <button key={q} onClick={() => setQuantity(q)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  quantity === q ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                }`}>
-                {q}
-              </button>
-            ))}
-            <input type="number" value={quantity}
-              onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
-              className="w-16 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400" />
-          </div>
-        </div>
-
-        {/* Save Layout */}
-        <div className="mb-3 flex flex-wrap gap-2">
-          <button onClick={handleSaveLayout}
-            className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
-            <Save className="h-4 w-4" /> Save as Default Layout
-          </button>
-        </div>
-
-        {/* Print buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => handlePrint(true, false)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700">
-            <Printer className="h-5 w-5" /> Print Label
-          </button>
-          <button onClick={() => handlePrint(false, false)}
-            className="flex items-center justify-center gap-2 rounded-xl bg-gray-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-600">
-            <ExternalLink className="h-4 w-4" /> Open in Window
-          </button>
-          <button onClick={() => handlePrint(true, true)}
-            className="flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-800">
-            <TestTube className="h-4 w-4" /> Test Label
-          </button>
-        </div>
-        <p className="mt-2 text-center text-xs text-gray-400">
-          Print Scale: 100% / Actual Size &middot; Margins: None
-        </p>
       </div>
     </div>
   );
