@@ -18,6 +18,8 @@ export interface ProductResult {
   priceNote: string;
   productLinks: string[];
   confidence: string;
+  authenticity: string;
+  authenticityNote: string;
 }
 
 export interface SearchRecord {

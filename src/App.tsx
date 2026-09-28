@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag } from "lucide-react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import ProductResults from "@/components/ProductResults";
 import HistoryList from "@/components/HistoryList";
 import ImageCapture from "@/components/ImageCapture";
 import PrintLabels from "@/components/PrintLabels";
+import TrainingMaterials from "@/components/TrainingMaterials";
 import LabelQueue, { type QueueItem } from "@/components/LabelQueue";
 
 type QueryType = "model" | "barcode";
-type Page = "search" | "labels";
+type Page = "search" | "labels" | "training";
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -216,6 +217,17 @@ export default function App() {
               <span>Labels</span>
             </button>
             <button
+              onClick={() => setPage(page === "training" ? "search" : "training")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                page === "training"
+                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              <BookOpen className="h-4 w-4" />
+              <span>Training</span>
+            </button>
+            <button
               onClick={() => setShowHistory(!showHistory)}
               className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
             >
@@ -244,6 +256,8 @@ export default function App() {
               heightIn={1.25}
             />
           </div>
+        ) : page === "training" ? (
+          <TrainingMaterials />
         ) : (
         <>
         {/* Search card */}

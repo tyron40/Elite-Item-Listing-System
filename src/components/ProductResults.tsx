@@ -12,6 +12,11 @@ import {
   DollarSign,
   BadgeCheck,
   Printer,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldQuestion,
+  Search,
+  MessageSquare,
 } from "lucide-react";
 import type { ProductResult } from "@/lib/supabase";
 
@@ -87,10 +92,26 @@ export default function ProductResults({
       : "bg-gray-100 text-gray-600";
 
   const formatPrice = (price: number) =>
-    `$${price.toLocaleString("en-US", {
+    `${price.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
+
+  const authenticityConfig = {
+    genuine: { icon: ShieldCheck, color: "text-emerald-600", bg: "bg-emerald-50", ring: "ring-emerald-200", label: "Genuine Product" },
+    likely_genuine: { icon: ShieldCheck, color: "text-emerald-600", bg: "bg-emerald-50", ring: "ring-emerald-200", label: "Likely Genuine" },
+    uncertain: { icon: ShieldQuestion, color: "text-amber-600", bg: "bg-amber-50", ring: "ring-amber-200", label: "Authenticity Uncertain" },
+    likely_fake: { icon: ShieldAlert, color: "text-red-600", bg: "bg-red-50", ring: "ring-red-200", label: "Likely Fake / Counterfeit" },
+    fake: { icon: ShieldAlert, color: "text-red-600", bg: "bg-red-50", ring: "ring-red-200", label: "Fake / Counterfeit" },
+  } as const;
+
+  const authKey = (result.authenticity || "uncertain") as keyof typeof authenticityConfig;
+  const auth = authenticityConfig[authKey] || authenticityConfig.uncertain;
+  const AuthIcon = auth.icon;
+
+  const searchQuery = result.title || "";
+  const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
+  const chatGptUrl = `https://chat.openai.com/?q=${encodeURIComponent(searchQuery)}`;
 
   return (
     <div className="space-y-4">
@@ -133,6 +154,46 @@ export default function ProductResults({
           />
         </div>
         <p className="text-base font-semibold text-gray-900">{result.title}</p>
+      </div>
+
+      {/* Authenticity */}
+      <div className={`flex items-start gap-3 rounded-xl border p-4 ${auth.bg} ring-1 ${auth.ring}`}>
+        <AuthIcon className={`mt-0.5 h-5 w-5 shrink-0 ${auth.color}`} />
+        <div className="flex-1">
+          <p className={`text-sm font-semibold ${auth.color}`}>{auth.label}</p>
+          {result.authenticityNote && (
+            <p className="mt-1 text-sm text-gray-600">{result.authenticityNote}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Cross-reference links */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-500">
+          <Search className="h-4 w-4" />
+          Cross-Reference
+        </div>
+        <p className="mb-3 text-xs text-gray-400">Want to verify on another platform? Click to search with the product name pre-filled:</p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={googleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+          >
+            <Search className="h-4 w-4 text-blue-500" />
+            Search on Google
+          </a>
+          <a
+            href={chatGptUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+          >
+            <MessageSquare className="h-4 w-4 text-emerald-500" />
+            Ask ChatGPT
+          </a>
+        </div>
       </div>
 
       {/* Specs & Description as bullet list */}

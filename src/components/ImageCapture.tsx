@@ -22,8 +22,8 @@ export default function ImageCapture({ onCapture, onClose }: ImageCaptureProps) 
       streamRef.current?.getTracks().forEach((track) => track.stop());
       const constraints: MediaStreamConstraints = {
         video: deviceId
-          ? { deviceId: { exact: deviceId } }
-          : { facingMode: "environment" },
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       };
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = mediaStream;
@@ -63,7 +63,7 @@ export default function ImageCapture({ onCapture, onClose }: ImageCaptureProps) 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
     setCapturedImage(dataUrl);
     streamRef.current?.getTracks().forEach((track) => track.stop());
   };
