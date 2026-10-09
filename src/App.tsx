@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen } from "lucide-react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import ProductResults from "@/components/ProductResults";
@@ -7,7 +7,8 @@ import HistoryList from "@/components/HistoryList";
 import ImageCapture from "@/components/ImageCapture";
 import PrintLabels from "@/components/PrintLabels";
 import TrainingMaterials from "@/components/TrainingMaterials";
-import LabelQueue, { type QueueItem } from "@/components/LabelQueue";
+import SettingsPanel from "@/components/SettingsPanel";
+import LabelQueue, { type QueueItem, type LabelGroup } from "@/components/LabelQueue";
 
 type QueryType = "model" | "barcode";
 type Page = "search" | "labels" | "training";
@@ -27,6 +28,10 @@ export default function App() {
   const [page, setPage] = useState<Page>("search");
   const [labelProduct, setLabelProduct] = useState<ProductResult | null>(null);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [searchSources, setSearchSources] = useState<Array<{ id: string; name: string; url: string }>>([]);
+  const [priceLimit, setPriceLimit] = useState(300);
+  const [labelGroups, setLabelGroups] = useState<LabelGroup[]>([]);
 
   const fetchHistory = useCallback(async () => {
     const { data, error: fetchError } = await supabase
@@ -40,9 +45,19 @@ export default function App() {
     }
   }, []);
 
+  const fetchSettings = useCallback(async () => {
+    const [srcRes, priceRes] = await Promise.all([
+      supabase.from("search_sources").select("*").order("created_at", { ascending: true }),
+      supabase.from("app_settings").select("*").eq("key", "price_limit").single(),
+    ]);
+    if (srcRes.data) setSearchSources(srcRes.data);
+    if (priceRes.data?.value) setPriceLimit(Number(priceRes.data.value));
+  }, []);
+
   useEffect(() => {
     fetchHistory();
-  }, [fetchHistory]);
+    fetchSettings();
+  }, [fetchHistory, fetchSettings]);
 
   const handleSearch = async (searchQuery: string, type: QueryType, isRefresh = false) => {
     if (!searchQuery.trim()) return;
@@ -60,7 +75,7 @@ export default function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({ query: searchQuery, queryType: type }),
+        body: JSON.stringify({ query: searchQuery, queryType: type, customSites: searchSources, priceLimit }),
       });
 
       if (!response.ok) {
@@ -110,7 +125,7 @@ export default function App() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({ image: imageData }),
+        body: JSON.stringify({ image: imageData, customSites: searchSources, priceLimit }),
       });
 
       if (!response.ok) {
@@ -189,6 +204,23 @@ export default function App() {
     setQueueItems([]);
   };
 
+  const handleMoveItem = (id: string, groupId: string | undefined) => {
+    setQueueItems((prev) => prev.map((i) => (i.id === id ? { ...i, groupId } : i)));
+  };
+
+  const handleAddGroup = (name: string) => {
+    setLabelGroups((prev) => [...prev, { id: `group-${Date.now()}`, name }]);
+  };
+
+  const handleRenameGroup = (id: string, name: string) => {
+    setLabelGroups((prev) => prev.map((g) => (g.id === id ? { ...g, name } : g)));
+  };
+
+  const handleDeleteGroup = (id: string) => {
+    setLabelGroups((prev) => prev.filter((g) => g.id !== id));
+    setQueueItems((prev) => prev.map((i) => (i.groupId === id ? { ...i, groupId: undefined } : i)));
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
       {/* Header */}
@@ -205,6 +237,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
+            >
+              <SettingsIcon className="h-4 w-4" />
+              <span>Settings</span>
+            </button>
             <button
               onClick={() => setPage(page === "labels" ? "search" : "labels")}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
@@ -252,8 +291,13 @@ export default function App() {
               onAdd={handleAddToQueue}
               onRemove={handleRemoveFromQueue}
               onClear={handleClearQueue}
+              onMoveItem={handleMoveItem}
               widthIn={2.25}
               heightIn={1.25}
+              groups={labelGroups}
+              onAddGroup={handleAddGroup}
+              onRenameGroup={handleRenameGroup}
+              onDeleteGroup={handleDeleteGroup}
             />
           </div>
         ) : page === "training" ? (
@@ -422,6 +466,11 @@ export default function App() {
           onCapture={handleImageSearch}
           onClose={() => setShowImageCapture(false)}
         />
+      )}
+
+      {/* Settings modal */}
+      {showSettings && (
+        <SettingsPanel onClose={() => { setShowSettings(false); fetchSettings(); }} />
       )}
     </div>
   );

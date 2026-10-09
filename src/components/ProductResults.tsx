@@ -254,7 +254,7 @@ export default function ProductResults({
           <div className="mb-1 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-medium text-emerald-700">
               <Calculator className="h-4 w-4" />
-              Final Price (25% if &gt;$300)
+              Final Price (25% if above limit)
             </div>
             <CopyButton
               copiedKey={copied === "finalPrice"}

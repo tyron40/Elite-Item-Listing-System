@@ -40,11 +40,14 @@ interface PartialResult {
 
 const SYSTEM_PROMPT = "You are a product identification, pricing, and authenticity expert. You search the web for product information and return structured JSON data. Identify the most likely real-world product for the user's query. Broad recognizable product names (e.g. 'Xbox 360', 'PlayStation 5', 'Nintendo Switch') are valid — you do NOT need an exact model number to return a result. If the exact variant is unknown, return the product family and mark uncertain fields as null or empty. Never fabricate a model number. Always return valid JSON only, no markdown formatting or code blocks.";
 
-function buildSearchPrompt(query: string, queryType: string): string {
+function buildSearchPrompt(query: string, queryType: string, customSites?: Array<{ name: string; url: string }>): string {
   const typeLabel = queryType === "barcode" ? "barcode/UPC/EAN" : "product name or model number";
+  const customSitesSection = customSites && customSites.length > 0
+    ? `\n\nADDITIONAL SEARCH SOURCES — MANDATORY: In addition to the default retailers, you MUST also search the following custom sites for this product:\n${customSites.map((s) => `- ${s.name} (${s.url})`).join("\n")}\nInclude any product pages or prices found on these sites in the results.\n`
+    : "";
   return `You are looking up a product for this ${typeLabel}: "${query}".
 
-Use the live web search tool to find the product AND its pricing. Use web search to validate factual product information — do not rely on memory alone. Perform multiple searches if needed to cross-reference.
+Use the live web search tool to find the product AND its pricing. Use web search to validate factual product information — do not rely on memory alone. Perform multiple searches if needed to cross-reference.${customSitesSection}
 
 IDENTIFICATION RULES:
 
@@ -148,15 +151,16 @@ function validateResult(result: ProductResult, query?: string, queryType?: strin
   return null;
 }
 
-function computePricing(result: ProductResult): void {
+function computePricing(result: ProductResult, priceLimit?: number): void {
+  const limit = priceLimit && priceLimit > 0 ? priceLimit : 300;
   const highestPrice = Number(result.highestPrice) || 0;
   result.highestPrice = highestPrice;
-  result.finalPrice = highestPrice > 300 ? Number((highestPrice * 0.25).toFixed(2)) : highestPrice;
+  result.finalPrice = highestPrice > limit ? Number((highestPrice * 0.25).toFixed(2)) : highestPrice;
   const hp = highestPrice.toFixed(2);
   const fp = result.finalPrice.toFixed(2);
-  result.priceNote = highestPrice > 300
+  result.priceNote = highestPrice > limit
     ? "$" + hp + " x 25% = $" + fp
-    : "$" + hp + " is at or below $300, so no reduction was applied.";
+    : "$" + hp + " is at or below $" + limit + ", so no reduction was applied.";
 }
 
 function extractJson(content: string): string {
@@ -252,7 +256,7 @@ async function callOpenAIResponses(
   return content;
 }
 
-function mergeResults(primary: PartialResult, priceResult: PartialResult | null): ProductResult {
+function mergeResults(primary: PartialResult, priceResult: PartialResult | null, priceLimit?: number): ProductResult {
   let highestPrice = Number(primary.highestPrice) || 0;
   let highestPriceSourceUrl = primary.highestPriceSourceUrl || "";
 
@@ -313,7 +317,7 @@ function mergeResults(primary: PartialResult, priceResult: PartialResult | null)
     authenticityNote: primary.authenticityNote || "",
   };
 
-  computePricing(result);
+  computePricing(result, priceLimit);
   return result;
 }
 
@@ -324,7 +328,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { query, queryType, image } = body;
+    const { query, queryType, image, customSites, priceLimit } = body as {
+      query?: string;
+      queryType?: string;
+      image?: string;
+      customSites?: Array<{ name: string; url: string }>;
+      priceLimit?: number;
+    };
 
     const openaiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openaiKey) {
@@ -384,7 +394,7 @@ Deno.serve(async (req: Request) => {
     const searchModel = "gpt-5.6-luna";
     const content = await callOpenAIResponses(openaiKey, searchModel, [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildSearchPrompt(searchQuery, searchType) },
+      { role: "user", content: buildSearchPrompt(searchQuery, searchType, customSites) },
     ]);
 
     let mainResult: PartialResult;
@@ -397,7 +407,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const result = mergeResults(mainResult, null);
+    const result = mergeResults(mainResult, null, priceLimit);
 
     const validationError = validateResult(result, image ? undefined : query, searchType);
     if (validationError) {
