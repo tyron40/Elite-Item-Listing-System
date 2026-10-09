@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
-  BookOpen, FileText, Image as ImageIcon, Video, Upload, Trash2,
+  FileText, Image as ImageIcon, Video, Upload, Trash2,
   Loader2, Plus, X, Download, Maximize2, Calendar, HardDrive,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, FolderPlus, Edit3, Folder, Check,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -15,26 +15,32 @@ interface TrainingMaterial {
   file_name: string;
   file_size: number | null;
   created_at: string;
+  folder_id: string | null;
 }
 
-type UploadTab = "document" | "image" | "video";
+interface TrainingFolder {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
 
-const BUCKET_MAP: Record<UploadTab, string> = {
+const BUCKET_MAP: Record<string, string> = {
   document: "training-documents",
   image: "training-images",
   video: "training-videos",
 };
 
-const ACCEPT_MAP: Record<UploadTab, string> = {
+const ACCEPT_MAP: Record<string, string> = {
   document: ".pdf,.doc,.docx,.txt,.rtf,.odt,.pages",
   image: "image/*",
   video: "video/*",
 };
 
-const TAB_CONFIG: Record<UploadTab, { icon: typeof FileText; label: string; color: string; bg: string; ring: string }> = {
-  document: { icon: FileText, label: "Documents", color: "text-blue-600", bg: "bg-blue-50", ring: "ring-blue-200" },
-  image: { icon: ImageIcon, label: "Images", color: "text-amber-600", bg: "bg-amber-50", ring: "ring-amber-200" },
-  video: { icon: Video, label: "Videos", color: "text-rose-600", bg: "bg-rose-50", ring: "ring-rose-200" },
+const TYPE_ICON: Record<string, typeof FileText> = {
+  document: FileText,
+  image: ImageIcon,
+  video: Video,
 };
 
 function formatFileSize(bytes: number | null): string {
@@ -49,35 +55,87 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function detectFileType(file: File): "document" | "image" | "video" {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return "document";
+}
+
 export default function TrainingMaterials() {
   const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
+  const [folders, setFolders] = useState<TrainingFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [uploadTab, setUploadTab] = useState<UploadTab>("document");
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<UploadTab>("document");
+
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null); // null = "All"
   const [viewerMaterial, setViewerMaterial] = useState<TrainingMaterial | null>(null);
 
-  const fetchMaterials = async () => {
-    setLoading(true);
-    const { data, error: fetchError } = await supabase
-      .from("training_materials")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (!fetchError && data) {
-      setMaterials(data as TrainingMaterial[]);
-    }
-    setLoading(false);
-  };
+  // Folder management
+  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
 
-  useEffect(() => {
-    fetchMaterials();
+  // Material edit
+  const [editingMaterial, setEditingMaterial] = useState<TrainingMaterial | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editFolderId, setEditFolderId] = useState<string | null>(null);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    const [matRes, folderRes] = await Promise.all([
+      supabase.from("training_materials").select("*").order("created_at", { ascending: false }),
+      supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
+    ]);
+    if (matRes.data) setMaterials(matRes.data as TrainingMaterial[]);
+    if (folderRes.data) setFolders(folderRes.data as TrainingFolder[]);
+    setLoading(false);
   }, []);
 
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // Folder CRUD
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    const maxOrder = folders.length > 0 ? Math.max(...folders.map((f) => f.sort_order)) : 0;
+    const { data } = await supabase
+      .from("training_folders")
+      .insert({ name: newFolderName.trim(), sort_order: maxOrder + 1 })
+      .select()
+      .single();
+    if (data) {
+      setFolders((prev) => [...prev, data as TrainingFolder]);
+    }
+    setNewFolderName("");
+    setShowFolderInput(false);
+  };
+
+  const handleRenameFolder = async (id: string) => {
+    if (!editingFolderName.trim()) return;
+    await supabase.from("training_folders").update({ name: editingFolderName.trim() }).eq("id", id);
+    setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: editingFolderName.trim() } : f)));
+    setEditingFolderId(null);
+    setEditingFolderName("");
+  };
+
+  const handleDeleteFolder = async (folder: TrainingFolder) => {
+    // Materials in this folder get folder_id set to null by the FK constraint
+    await supabase.from("training_folders").delete().eq("id", folder.id);
+    setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+    setMaterials((prev) => prev.map((m) => (m.folder_id === folder.id ? { ...m, folder_id: null } : m)));
+    if (activeFolderId === folder.id) setActiveFolderId(null);
+  };
+
+  // Material CRUD
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -91,39 +149,37 @@ export default function TrainingMaterials() {
     setError(null);
 
     try {
-      const bucket = BUCKET_MAP[uploadTab];
+      const fileType = detectFileType(selectedFile);
+      const bucket = BUCKET_MAP[fileType];
       const fileExt = selectedFile.name.split(".").pop() || "";
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
-      const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from(bucket)
-        .upload(filePath, selectedFile, { cacheControl: "3600", upsert: false });
+        .upload(fileName, selectedFile, { cacheControl: "3600", upsert: false });
 
       if (uploadError) throw new Error(uploadError.message);
 
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
 
-      const { error: insertError } = await supabase
-        .from("training_materials")
-        .insert({
-          title: newTitle.trim(),
-          description: newDescription.trim() || null,
-          file_type: uploadTab,
-          file_url: urlData.publicUrl,
-          file_name: selectedFile.name,
-          file_size: selectedFile.size,
-        });
+      const { error: insertError } = await supabase.from("training_materials").insert({
+        title: newTitle.trim(),
+        description: newDescription.trim() || null,
+        file_type: fileType,
+        file_url: urlData.publicUrl,
+        file_name: selectedFile.name,
+        file_size: selectedFile.size,
+        folder_id: uploadFolderId,
+      });
 
       if (insertError) throw new Error(insertError.message);
 
       setNewTitle("");
       setNewDescription("");
       setSelectedFile(null);
+      setUploadFolderId(activeFolderId);
       setShowUploadForm(false);
-      fetchMaterials();
+      fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -131,101 +187,184 @@ export default function TrainingMaterials() {
     }
   };
 
-  const handleDelete = async (material: TrainingMaterial) => {
+  const handleDeleteMaterial = async (material: TrainingMaterial) => {
     const bucket = BUCKET_MAP[material.file_type];
     const filePath = material.file_url.split("/").slice(-1)[0];
-
     await supabase.storage.from(bucket).remove([filePath]);
     await supabase.from("training_materials").delete().eq("id", material.id);
     setMaterials((prev) => prev.filter((m) => m.id !== material.id));
   };
 
-  const documents = materials.filter((m) => m.file_type === "document");
-  const images = materials.filter((m) => m.file_type === "image");
-  const videos = materials.filter((m) => m.file_type === "video");
-
-  const tabCounts: Record<UploadTab, number> = {
-    document: documents.length,
-    image: images.length,
-    video: videos.length,
+  const handleSaveEdit = async () => {
+    if (!editingMaterial || !editTitle.trim()) return;
+    await supabase
+      .from("training_materials")
+      .update({
+        title: editTitle.trim(),
+        description: editDescription.trim() || null,
+        folder_id: editFolderId,
+      })
+      .eq("id", editingMaterial.id);
+    setMaterials((prev) =>
+      prev.map((m) =>
+        m.id === editingMaterial.id
+          ? { ...m, title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId }
+          : m
+      )
+    );
+    setEditingMaterial(null);
+    setEditTitle("");
+    setEditDescription("");
+    setEditFolderId(null);
   };
 
-  const currentItems = activeTab === "document" ? documents : activeTab === "image" ? images : videos;
+  const startEdit = (material: TrainingMaterial) => {
+    setEditingMaterial(material);
+    setEditTitle(material.title);
+    setEditDescription(material.description || "");
+    setEditFolderId(material.folder_id);
+  };
+
+  // Filtered materials
+  const visibleMaterials = activeFolderId
+    ? materials.filter((m) => m.folder_id === activeFolderId)
+    : materials;
+
+  const folderName = activeFolderId
+    ? folders.find((f) => f.id === activeFolderId)?.name || "Folder"
+    : "All Materials";
+
+  const folderCount = (folderId: string | null) =>
+    folderId ? materials.filter((m) => m.folder_id === folderId).length : materials.length;
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="rounded-2xl border border-gray-200/80 bg-white/90 p-5 shadow-lg shadow-gray-200/40">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
-              <BookOpen className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">Rules & Training</h2>
-              <p className="text-xs text-gray-500">Upload and share documents, images, and videos for your team</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowUploadForm(!showUploadForm)}
-            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700"
-          >
-            <Plus className="h-4 w-4" /> Upload
-          </button>
-        </div>
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-bold text-gray-900">Training</h2>
+        <button
+          onClick={() => {
+            setUploadFolderId(activeFolderId);
+            setShowUploadForm(!showUploadForm);
+          }}
+          className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+        >
+          <Plus className="h-4 w-4" /> Upload
+        </button>
+      </div>
 
-        {/* Stats bar */}
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {(Object.keys(TAB_CONFIG) as UploadTab[]).map((tab) => {
-            const cfg = TAB_CONFIG[tab];
-            const Icon = cfg.icon;
-            return (
-              <div key={tab} className={`flex items-center gap-2.5 rounded-xl ${cfg.bg} px-4 py-3 ring-1 ${cfg.ring}`}>
-                <Icon className={`h-5 w-5 ${cfg.color}`} />
-                <div>
-                  <p className="text-lg font-bold text-gray-900">{tabCounts[tab]}</p>
-                  <p className="text-xs text-gray-500">{cfg.label}</p>
-                </div>
+      {/* Folder tabs row */}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-gray-200 pb-2">
+        {/* All tab */}
+        <button
+          onClick={() => setActiveFolderId(null)}
+          className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            activeFolderId === null
+              ? "bg-gray-900 text-white"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          <Folder className="h-3.5 w-3.5" />
+          All
+          <span className={`rounded-full px-1.5 py-0.5 text-xs ${activeFolderId === null ? "bg-white/20" : "bg-gray-200"}`}>
+            {folderCount(null)}
+          </span>
+        </button>
+
+        {folders.map((folder) => (
+          <div key={folder.id} className="flex shrink-0 items-center">
+            {editingFolderId === folder.id ? (
+              <div className="flex items-center gap-1 rounded-lg bg-gray-100 px-2 py-1">
+                <input
+                  autoFocus
+                  value={editingFolderName}
+                  onChange={(e) => setEditingFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleRenameFolder(folder.id);
+                    if (e.key === "Escape") { setEditingFolderId(null); setEditingFolderName(""); }
+                  }}
+                  className="w-24 rounded border border-gray-300 bg-white px-2 py-0.5 text-sm outline-none focus:border-gray-400"
+                />
+                <button onClick={() => handleRenameFolder(folder.id)} className="p-0.5 text-gray-600 hover:text-gray-900">
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => { setEditingFolderId(null); setEditingFolderName(""); }} className="p-0.5 text-gray-400 hover:text-gray-600">
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-            );
-          })}
-        </div>
+            ) : (
+              <div className="group flex items-center">
+                <button
+                  onClick={() => setActiveFolderId(folder.id)}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                    activeFolderId === folder.id
+                      ? "bg-gray-900 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  <Folder className="h-3.5 w-3.5" />
+                  {folder.name}
+                  <span className={`rounded-full px-1.5 py-0.5 text-xs ${activeFolderId === folder.id ? "bg-white/20" : "bg-gray-200"}`}>
+                    {folderCount(folder.id)}
+                  </span>
+                </button>
+                <button
+                  onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
+                  className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100"
+                >
+                  <Edit3 className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => handleDeleteFolder(folder)}
+                  className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* New folder input */}
+        {showFolderInput ? (
+          <div className="flex shrink-0 items-center gap-1 rounded-lg bg-gray-100 px-2 py-1">
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateFolder();
+                if (e.key === "Escape") { setShowFolderInput(false); setNewFolderName(""); }
+              }}
+              placeholder="Folder name..."
+              className="w-28 rounded border border-gray-300 bg-white px-2 py-0.5 text-sm outline-none focus:border-gray-400"
+            />
+            <button onClick={handleCreateFolder} className="p-0.5 text-gray-600 hover:text-gray-900">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => { setShowFolderInput(false); setNewFolderName(""); }} className="p-0.5 text-gray-400 hover:text-gray-600">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowFolderInput(true)}
+            className="flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700"
+          >
+            <FolderPlus className="h-3.5 w-3.5" /> New Tab
+          </button>
+        )}
       </div>
 
       {/* Upload form */}
       {showUploadForm && (
-        <div className="rounded-2xl border border-emerald-200 bg-white/90 p-5 shadow-lg shadow-emerald-100/40">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">Upload New Material</h3>
-            <button
-              onClick={() => setShowUploadForm(false)}
-              className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100"
-            >
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">Upload Material</h3>
+            <button onClick={() => setShowUploadForm(false)} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100">
               <X className="h-4 w-4" />
             </button>
           </div>
-
-          {/* Upload type tabs */}
-          <div className="mb-4 grid grid-cols-3 gap-2">
-            {(Object.keys(TAB_CONFIG) as UploadTab[]).map((tab) => {
-              const cfg = TAB_CONFIG[tab];
-              const Icon = cfg.icon;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => { setUploadTab(tab); setSelectedFile(null); }}
-                  className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium capitalize transition ${
-                    uploadTab === tab
-                      ? `${cfg.bg} ${cfg.color} ring-1 ${cfg.ring}`
-                      : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" /> {tab}
-                </button>
-              );
-            })}
-          </div>
-
           <div className="space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-400">Title</label>
@@ -234,7 +373,7 @@ export default function TrainingMaterials() {
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="Name this material..."
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
               />
             </div>
             <div>
@@ -244,12 +383,25 @@ export default function TrainingMaterials() {
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 placeholder="Brief description..."
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none transition focus:border-gray-400 focus:bg-white"
               />
             </div>
             <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Folder</label>
+              <select
+                value={uploadFolderId || ""}
+                onChange={(e) => setUploadFolderId(e.target.value || null)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-gray-400"
+              >
+                <option value="">All Materials (no folder)</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="mb-1 block text-xs font-medium text-gray-400">File</label>
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm text-gray-500 transition hover:border-emerald-400 hover:bg-emerald-50/30">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500 transition hover:border-gray-400 hover:bg-white">
                 <Upload className="h-5 w-5" />
                 {selectedFile ? (
                   <div className="min-w-0">
@@ -257,150 +409,141 @@ export default function TrainingMaterials() {
                     <p className="text-xs text-gray-400">{formatFileSize(selectedFile.size)}</p>
                   </div>
                 ) : (
-                  <span>Click to select a {uploadTab} file from your device</span>
+                  <span>Click to select a file from your device</span>
                 )}
                 <input
                   type="file"
-                  accept={ACCEPT_MAP[uploadTab]}
+                  accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,image/*,video/*"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
               </label>
             </div>
-            {error && (
-              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 ring-1 ring-red-200">
-                {error}
-              </div>
-            )}
+            {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 ring-1 ring-red-200">{error}</div>}
             <button
               onClick={handleUpload}
               disabled={!selectedFile || !newTitle.trim() || uploading}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Uploading...
-                </>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Uploading...</>
               ) : (
-                <>
-                  <Upload className="h-4 w-4" /> Upload Material
-                </>
+                <><Upload className="h-4 w-4" /> Upload</>
               )}
             </button>
           </div>
         </div>
       )}
 
-      {/* Content tabs */}
-      {!loading && materials.length > 0 && (
-        <div className="flex gap-2 border-b border-gray-200">
-          {(Object.keys(TAB_CONFIG) as UploadTab[]).map((tab) => {
-            const cfg = TAB_CONFIG[tab];
-            const Icon = cfg.icon;
-            const isActive = activeTab === tab;
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
-                  isActive
-                    ? `border-emerald-500 ${cfg.color}`
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+      {/* Edit form */}
+      {editingMaterial && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">Edit Material</h3>
+            <button onClick={() => setEditingMaterial(null)} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Title</label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-gray-400 focus:bg-white"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Description</label>
+              <input
+                type="text"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="Brief description..."
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-gray-400 focus:bg-white"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-400">Folder</label>
+              <select
+                value={editFolderId || ""}
+                onChange={(e) => setEditFolderId(e.target.value || null)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-gray-400"
               >
-                <Icon className="h-4 w-4" />
-                {cfg.label}
-                <span className={`rounded-full px-2 py-0.5 text-xs ${isActive ? cfg.bg : "bg-gray-100"} ${isActive ? cfg.color : "text-gray-400"}`}>
-                  {tabCounts[tab]}
-                </span>
-              </button>
-            );
-          })}
+                <option value="">All Materials (no folder)</option>
+                {folders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleSaveEdit}
+              disabled={!editTitle.trim()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50"
+            >
+              <Check className="h-4 w-4" /> Save Changes
+            </button>
+          </div>
         </div>
       )}
 
       {/* Loading */}
       {loading && (
-        <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
-          <p className="mt-3 text-sm text-gray-400">Loading materials...</p>
+        <div className="flex flex-col items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+          <p className="mt-2 text-sm text-gray-400">Loading...</p>
         </div>
       )}
 
-      {/* Materials grid */}
+      {/* Materials */}
       {!loading && (
-        <div className="space-y-4">
-          {currentItems.length > 0 ? (
-            activeTab === "image" ? (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {currentItems.map((material) => (
+        <div>
+          {visibleMaterials.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
+              <Folder className="mx-auto mb-2 h-10 w-10 text-gray-300" />
+              <p className="text-sm font-medium text-gray-500">No materials in {folderName}</p>
+              <p className="mt-1 text-xs text-gray-400">Click Upload to add content here</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleMaterials.map((material) => {
+                const Icon = TYPE_ICON[material.file_type];
+                return (
                   <div
                     key={material.id}
-                    className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-lg"
+                    className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white transition hover:shadow-md"
                   >
+                    {/* Thumbnail / preview area */}
                     <button
                       onClick={() => setViewerMaterial(material)}
-                      className="relative block aspect-square w-full overflow-hidden bg-gray-100"
+                      className="relative block w-full overflow-hidden bg-gray-100"
+                      style={{ aspectRatio: material.file_type === "video" ? "16/9" : material.file_type === "image" ? "1/1" : "4/1" }}
                     >
-                      <img
-                        src={material.file_url}
-                        alt={material.title}
-                        className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100">
-                        <Maximize2 className="h-6 w-6 text-white" />
-                      </div>
-                    </button>
-                    <div className="p-3">
-                      <p className="truncate text-sm font-medium text-gray-800">{material.title}</p>
-                      <p className="mt-0.5 text-xs text-gray-400">{formatDate(material.created_at)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : activeTab === "video" ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {currentItems.map((material) => (
-                  <div
-                    key={material.id}
-                    className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-lg"
-                  >
-                    <button
-                      onClick={() => setViewerMaterial(material)}
-                      className="relative block aspect-video w-full overflow-hidden bg-gray-900"
-                    >
-                      <video
-                        src={material.file_url}
-                        className="h-full w-full object-cover"
-                        preload="metadata"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition group-hover:bg-black/40">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
-                          <Video className="h-6 w-6 text-rose-600" />
+                      {material.file_type === "image" ? (
+                        <img src={material.file_url} alt={material.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />
+                      ) : material.file_type === "video" ? (
+                        <>
+                          <video src={material.file_url} className="h-full w-full object-cover" preload="metadata" />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/90">
+                              <Video className="h-5 w-5 text-gray-700" />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex h-full items-center justify-center gap-3 bg-gray-50">
+                          <Icon className="h-8 w-8 text-gray-300" />
+                          <span className="text-xs uppercase text-gray-400">{material.file_name.split(".").pop()}</span>
                         </div>
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/10 group-hover:opacity-100">
+                        <Maximize2 className="h-5 w-5 text-white drop-shadow" />
                       </div>
                     </button>
-                    <div className="p-3">
-                      <p className="truncate text-sm font-medium text-gray-800">{material.title}</p>
-                      {material.description && (
-                        <p className="mt-0.5 truncate text-xs text-gray-500">{material.description}</p>
-                      )}
-                      <p className="mt-0.5 text-xs text-gray-400">{formatDate(material.created_at)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {currentItems.map((material) => (
-                  <div
-                    key={material.id}
-                    className="group flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-emerald-300 hover:shadow-md"
-                  >
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-                      <FileText className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
+
+                    {/* Info */}
+                    <div className="flex flex-1 flex-col p-3">
                       <p className="truncate text-sm font-semibold text-gray-800">{material.title}</p>
                       {material.description && (
                         <p className="mt-0.5 truncate text-xs text-gray-500">{material.description}</p>
@@ -413,58 +556,47 @@ export default function TrainingMaterials() {
                           <Calendar className="h-3 w-3" /> {formatDate(material.created_at)}
                         </span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setViewerMaterial(material)}
-                        className="flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-100"
-                      >
-                        <Maximize2 className="h-3.5 w-3.5" /> Open
-                      </button>
-                      <button
-                        onClick={() => handleDelete(material)}
-                        className="rounded-lg p-1.5 text-gray-300 transition hover:bg-red-50 hover:text-red-500"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {/* Actions */}
+                      <div className="mt-2 flex items-center gap-1 border-t border-gray-100 pt-2">
+                        <button
+                          onClick={() => setViewerMaterial(material)}
+                          className="flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100"
+                        >
+                          <Maximize2 className="h-3.5 w-3.5" /> Open
+                        </button>
+                        <button
+                          onClick={() => startEdit(material)}
+                          className="flex items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteMaterial(material)}
+                          className="flex items-center justify-center rounded-md px-2.5 py-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )
-          ) : materials.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-16 text-center">
-              <BookOpen className="mx-auto mb-3 h-12 w-12 text-gray-300" />
-              <p className="text-sm font-semibold text-gray-500">No training materials yet</p>
-              <p className="mt-1 text-xs text-gray-400">Upload documents, images, and videos for your workers to reference</p>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
-              <p className="text-sm text-gray-400">No {TAB_CONFIG[activeTab].label.toLowerCase()} uploaded yet</p>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* In-page viewer modal */}
+      {/* Viewer */}
       {viewerMaterial && (
         <ContentViewer
           material={viewerMaterial}
+          items={visibleMaterials}
           onClose={() => setViewerMaterial(null)}
-          onPrev={() => {
-            const idx = currentItems.findIndex((m) => m.id === viewerMaterial.id);
-            if (idx > 0) setViewerMaterial(currentItems[idx - 1]);
-          }}
-          onNext={() => {
-            const idx = currentItems.findIndex((m) => m.id === viewerMaterial.id);
-            if (idx < currentItems.length - 1) setViewerMaterial(currentItems[idx + 1]);
-          }}
+          onNavigate={setViewerMaterial}
           onDelete={() => {
-            handleDelete(viewerMaterial);
+            handleDeleteMaterial(viewerMaterial);
             setViewerMaterial(null);
           }}
-          hasPrev={currentItems.findIndex((m) => m.id === viewerMaterial.id) > 0}
-          hasNext={currentItems.findIndex((m) => m.id === viewerMaterial.id) < currentItems.length - 1}
         />
       )}
     </div>
@@ -473,29 +605,28 @@ export default function TrainingMaterials() {
 
 function ContentViewer({
   material,
+  items,
   onClose,
-  onPrev,
-  onNext,
+  onNavigate,
   onDelete,
-  hasPrev,
-  hasNext,
 }: {
   material: TrainingMaterial;
+  items: TrainingMaterial[];
   onClose: () => void;
-  onPrev: () => void;
-  onNext: () => void;
+  onNavigate: (m: TrainingMaterial) => void;
   onDelete: () => void;
-  hasPrev: boolean;
-  hasNext: boolean;
 }) {
   const isPdf = material.file_name.toLowerCase().endsWith(".pdf") || material.file_url.toLowerCase().includes(".pdf");
   const isImage = material.file_type === "image";
   const isVideo = material.file_type === "video";
   const isText = [".txt", ".rtf"].some((ext) => material.file_name.toLowerCase().endsWith(ext));
 
+  const idx = items.findIndex((m) => m.id === material.id);
+  const hasPrev = idx > 0;
+  const hasNext = idx < items.length - 1;
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm" onClick={onClose}>
-      {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-white">{material.title}</p>
@@ -507,33 +638,25 @@ function ContentViewer({
             download={material.file_name}
             onClick={(e) => e.stopPropagation()}
             className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white"
-            title="Download"
           >
             <Download className="h-5 w-5" />
           </a>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
             className="rounded-lg p-2 text-gray-400 transition hover:bg-red-500/20 hover:text-red-400"
-            title="Delete"
           >
             <Trash2 className="h-5 w-5" />
           </button>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white"
-            title="Close"
-          >
+          <button onClick={onClose} className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      {/* Content area */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 pb-4" onClick={(e) => e.stopPropagation()}>
-        {/* Prev / Next */}
         {hasPrev && (
           <button
-            onClick={onPrev}
+            onClick={() => onNavigate(items[idx - 1])}
             className="absolute left-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
           >
             <ChevronLeft className="h-6 w-6" />
@@ -541,39 +664,19 @@ function ContentViewer({
         )}
         {hasNext && (
           <button
-            onClick={onNext}
+            onClick={() => onNavigate(items[idx + 1])}
             className="absolute right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
           >
             <ChevronRight className="h-6 w-6" />
           </button>
         )}
 
-        {/* Content */}
         {isImage ? (
-          <img
-            src={material.file_url}
-            alt={material.title}
-            className="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
-          />
+          <img src={material.file_url} alt={material.title} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
         ) : isVideo ? (
-          <video
-            src={material.file_url}
-            controls
-            autoPlay
-            className="max-h-full max-w-full rounded-xl shadow-2xl"
-          />
-        ) : isPdf ? (
-          <iframe
-            src={material.file_url}
-            title={material.title}
-            className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl"
-          />
-        ) : isText ? (
-          <iframe
-            src={material.file_url}
-            title={material.title}
-            className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl"
-          />
+          <video src={material.file_url} controls autoPlay className="max-h-full max-w-full rounded-xl shadow-2xl" />
+        ) : isPdf || isText ? (
+          <iframe src={material.file_url} title={material.title} className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl" />
         ) : (
           <div className="flex flex-col items-center text-center">
             <FileText className="mb-4 h-16 w-16 text-gray-500" />
@@ -582,7 +685,7 @@ function ContentViewer({
               href={material.file_url}
               download={material.file_name}
               onClick={(e) => e.stopPropagation()}
-              className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              className="mt-4 flex items-center gap-2 rounded-xl bg-gray-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-600"
             >
               <Download className="h-4 w-4" /> Download File
             </a>
