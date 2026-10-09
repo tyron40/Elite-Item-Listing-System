@@ -441,7 +441,7 @@ export default function App() {
               <PackageSearch className="h-10 w-10 text-emerald-400" />
             </div>
             <p className="mt-4 text-sm font-semibold text-gray-600">
-              Enter a model number, scan a barcode, or take a photo to begin
+              Enter a model number, type detailed info, scan a barcode, or take a photo to begin
             </p>
             <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-gray-400">
               The AI will search the web, find the exact product, and calculate your listing price automatically
