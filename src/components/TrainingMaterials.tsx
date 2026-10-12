@@ -3,8 +3,8 @@ import {
   FileText, Image as ImageIcon, Video, Upload, Trash2,
   Loader2, Plus, X, Download, Maximize2, Calendar, HardDrive,
   ChevronLeft, ChevronRight, FolderPlus, Edit3, Folder, Check,
-  BookOpen, Library, GraduationCap, Sparkles, Play, Award,
-  Clock, Users, AlertCircle, Pencil, Wand2, Trophy,
+  BookOpen, Library, GraduationCap, Play, Award,
+  Pencil, Trophy,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type {
@@ -79,13 +79,13 @@ export default function TrainingMaterials() {
                 subView === "academy" ? "bg-white text-gray-900" : "text-gray-300 hover:text-white"
               }`}
             >
-              <BookOpen className="h-4 w-4" /> Academy
+              <BookOpen className="h-4 w-4" /> Courses
             </button>
           </div>
         </div>
       </div>
 
-      {subView === "library" ? <LibraryView /> : <AcademyView />}
+      {subView === "library" ? <LibraryView /> : <CoursesView />}
     </div>
   );
 }
@@ -448,37 +448,27 @@ function LibraryView() {
 
 /* =========================== ACADEMY =========================== */
 
-function AcademyView() {
+function CoursesView() {
   const [courses, setCourses] = useState<TrainingCourse[]>([]);
   const [questions, setQuestions] = useState<Record<string, QuizQuestion[]>>({});
   const [attempts, setAttempts] = useState<Record<string, QuizAttempt[]>>({});
   const [folders, setFolders] = useState<TrainingFolder[]>([]);
-  const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [showCourseBuilder, setShowCourseBuilder] = useState(false);
   const [editingCourse, setEditingCourse] = useState<{ course: TrainingCourse; questions: QuizQuestion[] } | null>(null);
   const [playingCourse, setPlayingCourse] = useState<{ course: TrainingCourse; questions: QuizQuestion[] } | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [genSelectedMaterials, setGenSelectedMaterials] = useState<Set<string>>(new Set());
-  const [genTitle, setGenTitle] = useState("");
-  const [genNumQuestions, setGenNumQuestions] = useState(5);
-  const [genError, setGenError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [courseRes, folderRes, matRes] = await Promise.all([
+    const [courseRes, folderRes] = await Promise.all([
       supabase.from("training_courses").select("*").order("created_at", { ascending: false }),
       supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
-      supabase.from("training_materials").select("*").order("created_at", { ascending: false }),
     ]);
     const courseList = (courseRes.data || []) as TrainingCourse[];
     setCourses(courseList);
     setFolders((folderRes.data || []) as TrainingFolder[]);
-    setMaterials((matRes.data || []) as TrainingMaterial[]);
 
-    // Fetch questions and attempts for each course
     const qMap: Record<string, QuizQuestion[]> = {};
     const aMap: Record<string, QuizAttempt[]> = {};
     for (const course of courseList) {
@@ -504,94 +494,20 @@ function AcademyView() {
     setCourses((prev) => prev.filter((c) => c.id !== course.id));
   };
 
-  const handleGenerateQuiz = async () => {
-    if (genSelectedMaterials.size === 0) return;
-    setGenerating(true);
-    setGenError(null);
-    try {
-      const selectedMats = materials.filter((m) => genSelectedMaterials.has(m.id));
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-quiz`;
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({ materials: selectedMats.map((m) => ({ id: m.id, title: m.title, file_type: m.file_type, file_url: m.file_url, file_name: m.file_name })), numQuestions: genNumQuestions }),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        throw new Error(errBody.error || "Generation failed");
-      }
-
-      const data = await response.json() as { questions: Array<{ question_text: string; options: Array<{ id: string; text: string }>; correct_option_id: string; explanation: string; sort_order: number }> };
-
-      // Create course with generated questions
-      const { data: newCourse } = await supabase.from("training_courses").insert({
-        title: genTitle.trim() || "AI Generated Course",
-        description: `Auto-generated from ${selectedMats.length} training materials`,
-        source_material_ids: Array.from(genSelectedMaterials),
-        passing_score: 70,
-      }).select().single();
-
-      if (newCourse) {
-        const courseId = (newCourse as { id: string }).id;
-        await supabase.from("quiz_questions").insert(
-          data.questions.map((q) => ({
-            course_id: courseId,
-            question_text: q.question_text,
-            options: q.options,
-            correct_option_id: q.correct_option_id,
-            explanation: q.explanation || null,
-            sort_order: q.sort_order,
-          }))
-        );
-      }
-
-      setShowGenerateModal(false);
-      setGenSelectedMaterials(new Set());
-      setGenTitle("");
-      setGenNumQuestions(5);
-      fetchAll();
-    } catch (e) {
-      setGenError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const toggleMaterialSelection = (id: string) => {
-    setGenSelectedMaterials((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-5 py-4">
         <div>
-          <h3 className="text-sm font-bold text-gray-900">Training Academy</h3>
+          <h3 className="text-sm font-bold text-gray-900">Training Courses</h3>
           <p className="text-xs text-gray-400">{courses.length} courses with quizzes</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowGenerateModal(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-          >
-            <Wand2 className="h-4 w-4 text-emerald-600" /> Generate Quiz
-          </button>
-          <button
-            onClick={() => { setEditingCourse(null); setShowCourseBuilder(true); }}
-            className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
-          >
-            <Plus className="h-4 w-4" /> Create Course
-          </button>
-        </div>
+        <button
+          onClick={() => { setEditingCourse(null); setShowCourseBuilder(true); }}
+          className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+        >
+          <Plus className="h-4 w-4" /> Create Course
+        </button>
       </div>
 
       {/* Folder filter */}
@@ -629,7 +545,7 @@ function AcademyView() {
             <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-12 text-center">
               <BookOpen className="mx-auto mb-2 h-10 w-10 text-gray-300" />
               <p className="text-sm font-medium text-gray-500">No courses yet</p>
-              <p className="mt-1 text-xs text-gray-400">Generate a quiz from your materials or create one manually</p>
+              <p className="mt-1 text-xs text-gray-400">Click Create Course to build a quiz</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -640,29 +556,20 @@ function AcademyView() {
                 const bestScore = courseAttempts.length > 0 ? Math.max(...courseAttempts.map((a) => a.score)) : null;
                 return (
                   <div key={course.id} className="group flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white transition hover:shadow-lg">
-                    {/* Card header */}
                     <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 px-5 py-4">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-900">
                         <GraduationCap className="h-5 w-5 text-white" />
                       </div>
-                      {course.source_material_ids && course.source_material_ids.length > 0 && (
-                        <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                          <Sparkles className="h-3 w-3" /> AI
-                        </span>
-                      )}
                     </div>
-                    {/* Body */}
                     <div className="flex flex-1 flex-col p-5">
                       <p className="text-sm font-bold text-gray-900">{course.title}</p>
                       {course.description && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{course.description}</p>}
 
-                      {/* Stats */}
                       <div className="mt-4 flex items-center gap-4 text-xs text-gray-400">
                         <span className="flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {courseQuestions.length} Qs</span>
                         <span className="flex items-center gap-1"><Award className="h-3.5 w-3.5" /> {course.passing_score}% to pass</span>
                       </div>
 
-                      {/* Best score */}
                       {bestScore !== null && (
                         <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
                           <Trophy className="h-4 w-4 text-amber-500" />
@@ -675,7 +582,6 @@ function AcademyView() {
                         </div>
                       )}
 
-                      {/* Actions */}
                       <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-4">
                         <button
                           onClick={() => setPlayingCourse({ course, questions: courseQuestions })}
@@ -703,64 +609,6 @@ function AcademyView() {
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Generate modal */}
-      {showGenerateModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowGenerateModal(false)}>
-          <div className="mt-8 w-full max-w-lg rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Wand2 className="h-5 w-5 text-emerald-600" />
-                <h2 className="text-base font-bold text-gray-900">Generate Quiz from Materials</h2>
-              </div>
-              <button onClick={() => setShowGenerateModal(false)} className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="space-y-4 p-5">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-400">Course Title</label>
-                <input type="text" value={genTitle} onChange={(e) => setGenTitle(e.target.value)} placeholder="e.g. Safety Training Quiz"
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-gray-400 focus:bg-white" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-400">Number of Questions: {genNumQuestions}</label>
-                <input type="range" min="3" max="15" value={genNumQuestions} onChange={(e) => setGenNumQuestions(Number(e.target.value))} className="w-full" />
-              </div>
-              <div>
-                <label className="mb-2 block text-xs font-medium text-gray-400">Select Materials ({genSelectedMaterials.size} selected)</label>
-                <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-lg border border-gray-200 p-2">
-                  {materials.length === 0 ? (
-                    <p className="py-4 text-center text-xs text-gray-400">No materials uploaded yet. Upload materials in the Library first.</p>
-                  ) : (
-                    materials.map((m) => {
-                      const Icon = TYPE_ICON[m.file_type];
-                      const isSelected = genSelectedMaterials.has(m.id);
-                      return (
-                        <button key={m.id} onClick={() => toggleMaterialSelection(m.id)}
-                          className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${
-                            isSelected ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white hover:bg-gray-50"
-                          }`}>
-                          <Icon className={`h-4 w-4 shrink-0 ${isSelected ? "text-emerald-600" : "text-gray-400"}`} />
-                          <span className="flex-1 truncate text-sm text-gray-700">{m.title}</span>
-                          {isSelected && <Check className="h-4 w-4 text-emerald-600" />}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-              {genError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 ring-1 ring-red-200">{genError}</div>}
-              <button
-                onClick={handleGenerateQuiz}
-                disabled={genSelectedMaterials.size === 0 || generating || !genTitle.trim()}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-40"
-              >
-                {generating ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating Quiz...</> : <><Sparkles className="h-4 w-4" /> Generate Quiz</>}
-              </button>
-              <p className="text-center text-xs text-gray-400">The AI will read your documents and images and create quiz questions based on their content</p>
-            </div>
-          </div>
         </div>
       )}
 
