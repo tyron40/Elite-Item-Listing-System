@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon } from "lucide-react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon, Home as HomeIcon, ArrowRight, TrendingUp, Award, FileText } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import ProductResults from "@/components/ProductResults";
@@ -11,7 +11,7 @@ import SettingsPanel from "@/components/SettingsPanel";
 import LabelQueue, { type QueueItem, type LabelGroup } from "@/components/LabelQueue";
 
 type QueryType = "model" | "barcode";
-type Page = "search" | "labels" | "training";
+type Page = "home" | "search" | "labels" | "training";
 
 export default function App() {
   const [query, setQuery] = useState("");
@@ -25,7 +25,7 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastQuery, setLastQuery] = useState<{ query: string; type: QueryType } | null>(null);
-  const [page, setPage] = useState<Page>("search");
+  const [page, setPage] = useState<Page>("home");
   const [labelProduct, setLabelProduct] = useState<ProductResult | null>(null);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -245,7 +245,7 @@ export default function App() {
               <span>Settings</span>
             </button>
             <button
-              onClick={() => setPage(page === "labels" ? "search" : "labels")}
+              onClick={() => setPage(page === "labels" ? "home" : "labels")}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                 page === "labels"
                   ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -256,7 +256,7 @@ export default function App() {
               <span>Labels</span>
             </button>
             <button
-              onClick={() => setPage(page === "training" ? "search" : "training")}
+              onClick={() => setPage(page === "training" ? "home" : "training")}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                 page === "training"
                   ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -283,9 +283,15 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {page === "labels" ? (
+        {page === "home" ? (
+          <HomePage
+            historyCount={history.length}
+            onNavigate={setPage}
+            onOpenHistory={() => { setPage("search"); setShowHistory(true); }}
+          />
+        ) : page === "labels" ? (
           <div className="space-y-4">
-            <PrintLabels productResult={labelProduct} onClose={() => setPage("search")} />
+            <PrintLabels productResult={labelProduct} onClose={() => setPage("home")} />
             <LabelQueue
               items={queueItems}
               onAdd={handleAddToQueue}
@@ -472,6 +478,151 @@ export default function App() {
       {showSettings && (
         <SettingsPanel onClose={() => { setShowSettings(false); fetchSettings(); }} />
       )}
+    </div>
+  );
+}
+
+function HomePage({
+  historyCount, onNavigate, onOpenHistory,
+}: {
+  historyCount: number;
+  onNavigate: (page: Page) => void;
+  onOpenHistory: () => void;
+}) {
+  const [stats, setStats] = useState({ courses: 0, materials: 0, bestScore: null as number | null });
+
+  useEffect(() => {
+    (async () => {
+      const [matRes, courseRes, attemptRes] = await Promise.all([
+        supabase.from("training_materials").select("id", { count: "exact", head: true }),
+        supabase.from("training_courses").select("id", { count: "exact", head: true }),
+        supabase.from("quiz_attempts").select("score").order("score", { ascending: false }).limit(1),
+      ]);
+      setStats({
+        materials: matRes.count || 0,
+        courses: courseRes.count || 0,
+        bestScore: attemptRes.data && attemptRes.data.length > 0 ? (attemptRes.data[0] as { score: number }).score : null,
+      });
+    })();
+  }, []);
+
+  const features = [
+    {
+      title: "Product Search",
+      desc: "Identify, price, and list items using model numbers, barcodes, or photos",
+      icon: PackageSearch,
+      gradient: "from-emerald-500 to-teal-600",
+      onClick: () => onNavigate("search"),
+    },
+    {
+      title: "Labels & Printing",
+      desc: "Design and print custom price labels with templates and groups",
+      icon: Tag,
+      gradient: "from-blue-500 to-cyan-600",
+      onClick: () => onNavigate("labels"),
+    },
+    {
+      title: "Training & Courses",
+      desc: "Upload materials, build courses, and take quizzes with pass/fail scoring",
+      icon: BookOpen,
+      gradient: "from-amber-500 to-orange-600",
+      onClick: () => onNavigate("training"),
+    },
+  ];
+
+  const statCards = [
+    { label: "Searches", value: historyCount, icon: TrendingUp, color: "text-emerald-600" },
+    { label: "Training Materials", value: stats.materials, icon: FileText, color: "text-blue-600" },
+    { label: "Courses", value: stats.courses, icon: BookOpen, color: "text-amber-600" },
+    { label: "Best Quiz Score", value: stats.bestScore !== null ? `${stats.bestScore}%` : "--", icon: Award, color: "text-orange-600" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Hero */}
+      <div className="overflow-hidden rounded-2xl border border-gray-200/80 bg-gradient-to-br from-gray-900 via-gray-800 to-emerald-900 p-8 shadow-xl">
+        <div className="flex items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/20">
+            <PackageSearch className="h-7 w-7 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white">Welcome back</h1>
+            <p className="mt-0.5 text-sm text-gray-300">Identify, price, and list your products with AI-powered tools</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {statCards.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div key={stat.label} className="rounded-xl border border-gray-200/80 bg-white/90 p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <Icon className={`h-5 w-5 ${stat.color}`} />
+              </div>
+              <p className="mt-2 text-2xl font-bold text-gray-900">{stat.value}</p>
+              <p className="text-xs text-gray-400">{stat.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Feature cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {features.map((feature) => {
+          const Icon = feature.icon;
+          return (
+            <button
+              key={feature.title}
+              onClick={feature.onClick}
+              className="group relative overflow-hidden rounded-2xl border border-gray-200/80 bg-white/90 p-6 text-left shadow-lg shadow-gray-200/40 transition hover:shadow-xl hover:-translate-y-0.5"
+            >
+              <div className={`flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${feature.gradient} shadow-lg`}>
+                <Icon className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="mt-4 text-base font-bold text-gray-900">{feature.title}</h3>
+              <p className="mt-1 text-sm leading-relaxed text-gray-500">{feature.desc}</p>
+              <div className="mt-4 flex items-center gap-1 text-sm font-medium text-emerald-600 opacity-0 transition group-hover:opacity-100">
+                Open <ArrowRight className="h-4 w-4" />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Quick actions */}
+      <div className="rounded-2xl border border-gray-200/80 bg-white/90 p-6 shadow-lg shadow-gray-200/40">
+        <h3 className="text-sm font-bold text-gray-900">Quick Actions</h3>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => onNavigate("search")}
+            className="flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800"
+          >
+            <Search className="h-4 w-4" /> Search a Product
+          </button>
+          <button
+            onClick={() => onNavigate("labels")}
+            className="flex items-center gap-2 rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+          >
+            <Tag className="h-4 w-4" /> Print Labels
+          </button>
+          <button
+            onClick={() => onNavigate("training")}
+            className="flex items-center gap-2 rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+          >
+            <BookOpen className="h-4 w-4" /> View Training
+          </button>
+          {historyCount > 0 && (
+            <button
+              onClick={onOpenHistory}
+              className="flex items-center gap-2 rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              <HistoryIcon className="h-4 w-4" /> Search History ({historyCount})
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

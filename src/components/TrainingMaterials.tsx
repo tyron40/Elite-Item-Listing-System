@@ -44,6 +44,39 @@ function detectFileType(file: File): "document" | "image" | "video" {
   return "document";
 }
 
+function uploadWithProgress(bucket: string, path: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Authorization", `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("x-upsert", "false");
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        try {
+          const err = JSON.parse(xhr.responseText);
+          reject(new Error(err.message || `Upload failed (${xhr.status})`));
+        } catch {
+          reject(new Error(`Upload failed (${xhr.status})`));
+        }
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(file);
+  });
+}
+
 type SubView = "library" | "academy";
 
 export default function TrainingMaterials() {
@@ -97,6 +130,7 @@ function LibraryView() {
   const [folders, setFolders] = useState<TrainingFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [showUploadForm, setShowUploadForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -161,14 +195,15 @@ function LibraryView() {
   const handleUpload = async () => {
     if (!selectedFile || !newTitle.trim()) return;
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
     try {
       const fileType = detectFileType(selectedFile);
       const bucket = BUCKET_MAP[fileType];
       const fileExt = selectedFile.name.split(".").pop() || "";
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, selectedFile, { cacheControl: "3600", upsert: false });
-      if (uploadError) throw new Error(uploadError.message);
+
+      await uploadWithProgress(bucket, fileName, selectedFile, (pct) => setUploadProgress(pct));
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
       const { error: insertError } = await supabase.from("training_materials").insert({
         title: newTitle.trim(), description: newDescription.trim() || null,
@@ -183,6 +218,7 @@ function LibraryView() {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -322,9 +358,17 @@ function LibraryView() {
               </label>
             </div>
             {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 ring-1 ring-red-200">{error}</div>}
+            {uploading && uploadProgress > 0 && (
+              <div className="space-y-1">
+                <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+                  <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
+                </div>
+                <p className="text-center text-xs text-gray-400">{uploadProgress}% uploaded</p>
+              </div>
+            )}
             <button onClick={handleUpload} disabled={!selectedFile || !newTitle.trim() || uploading}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50">
-              {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading...</> : <><Upload className="h-4 w-4" /> Upload</>}
+              {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> {uploadProgress > 0 ? `${uploadProgress}%` : "Uploading..."}</> : <><Upload className="h-4 w-4" /> Upload</>}
             </button>
           </div>
         </div>
@@ -692,10 +736,12 @@ function ContentViewer({
           className="absolute left-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"><ChevronLeft className="h-6 w-6" /></button>}
         {hasNext && <button onClick={() => onNavigate(items[idx + 1])}
           className="absolute right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"><ChevronRight className="h-6 w-6" /></button>}
-        {isImage ? <img src={material.file_url} alt={material.title} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
-          : isVideo ? <video src={material.file_url} controls autoPlay className="max-h-full max-w-full rounded-xl shadow-2xl" />
+
+        <div className="flex max-h-full max-w-full flex-col items-center">
+          {isImage ? <img src={material.file_url} alt={material.title} className="max-h-[80vh] max-w-full rounded-xl object-contain shadow-2xl" />
+          : isVideo ? <video src={material.file_url} controls autoPlay className="max-h-[80vh] max-w-full rounded-xl shadow-2xl" />
           : isText ? (
-            <div className="flex h-full w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
+            <div className="flex h-[80vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
               {textContent === null && !textError ? (
                 <div className="flex flex-1 items-center justify-center">
                   <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
@@ -714,11 +760,18 @@ function ContentViewer({
               )}
             </div>
           )
-          : isPdf ? <iframe src={material.file_url} title={material.title} className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl" />
+          : isPdf ? <iframe src={material.file_url} title={material.title} className="h-[80vh] w-full max-w-4xl rounded-xl bg-white shadow-2xl" />
           : <div className="flex flex-col items-center text-center"><FileText className="mb-4 h-16 w-16 text-gray-500" />
               <p className="text-sm text-gray-400">This file type can't be previewed in the browser.</p>
               <a href={material.file_url} download={material.file_name} onClick={(e) => e.stopPropagation()}
                 className="mt-4 flex items-center gap-2 rounded-xl bg-gray-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-600"><Download className="h-4 w-4" /> Download File</a></div>}
+
+          {material.description && (
+            <div className="mt-3 max-w-2xl rounded-xl bg-white/10 px-4 py-2.5 text-center backdrop-blur-sm">
+              <p className="text-sm leading-relaxed text-gray-200">{material.description}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
