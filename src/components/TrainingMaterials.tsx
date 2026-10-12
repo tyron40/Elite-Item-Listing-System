@@ -649,13 +649,28 @@ function ContentViewer({
   onNavigate: (m: TrainingMaterial) => void;
   onDelete: () => void;
 }) {
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [textError, setTextError] = useState(false);
+
   const isPdf = material.file_name.toLowerCase().endsWith(".pdf") || material.file_url.toLowerCase().includes(".pdf");
   const isImage = material.file_type === "image";
   const isVideo = material.file_type === "video";
-  const isText = [".txt", ".rtf"].some((ext) => material.file_name.toLowerCase().endsWith(ext));
+  const isText = [".txt", ".rtf", ".csv", ".log", ".md"].some((ext) => material.file_name.toLowerCase().endsWith(ext));
   const idx = items.findIndex((m) => m.id === material.id);
   const hasPrev = idx > 0;
   const hasNext = idx < items.length - 1;
+
+  useEffect(() => {
+    setTextContent(null);
+    setTextError(false);
+    if (!isText) return;
+    let cancelled = false;
+    fetch(material.file_url)
+      .then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.text(); })
+      .then((text) => { if (!cancelled) setTextContent(text); })
+      .catch(() => { if (!cancelled) setTextError(true); });
+    return () => { cancelled = true; };
+  }, [material.file_url, isText]);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm" onClick={onClose}>
@@ -679,7 +694,27 @@ function ContentViewer({
           className="absolute right-2 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"><ChevronRight className="h-6 w-6" /></button>}
         {isImage ? <img src={material.file_url} alt={material.title} className="max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
           : isVideo ? <video src={material.file_url} controls autoPlay className="max-h-full max-w-full rounded-xl shadow-2xl" />
-          : isPdf || isText ? <iframe src={material.file_url} title={material.title} className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl" />
+          : isText ? (
+            <div className="flex h-full w-full max-w-4xl flex-col rounded-xl bg-white shadow-2xl">
+              {textContent === null && !textError ? (
+                <div className="flex flex-1 items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
+                </div>
+              ) : textError ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center">
+                  <FileText className="mb-4 h-16 w-16 text-gray-300" />
+                  <p className="text-sm text-gray-400">Couldn't load this document in the viewer.</p>
+                  <a href={material.file_url} download={material.file_name} onClick={(e) => e.stopPropagation()}
+                    className="mt-4 flex items-center gap-2 rounded-xl bg-gray-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-600"><Download className="h-4 w-4" /> Download File</a>
+                </div>
+              ) : (
+                <div className="flex-1 overflow-auto p-6">
+                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-gray-800">{textContent}</pre>
+                </div>
+              )}
+            </div>
+          )
+          : isPdf ? <iframe src={material.file_url} title={material.title} className="h-full w-full max-w-4xl rounded-xl bg-white shadow-2xl" />
           : <div className="flex flex-col items-center text-center"><FileText className="mb-4 h-16 w-16 text-gray-500" />
               <p className="text-sm text-gray-400">This file type can't be previewed in the browser.</p>
               <a href={material.file_url} download={material.file_name} onClick={(e) => e.stopPropagation()}
