@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon, Home as HomeIcon, ArrowRight, TrendingUp, Award, FileText } from "lucide-react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon, ArrowRight, TrendingUp, Award, FileText, LogOut, Users, ChevronDown } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
+import LoginPage from "@/components/LoginPage";
+import AdminUsersPage from "@/components/AdminUsersPage";
 import BarcodeScanner from "@/components/BarcodeScanner";
 import ProductResults from "@/components/ProductResults";
 import HistoryList from "@/components/HistoryList";
@@ -11,9 +14,27 @@ import SettingsPanel from "@/components/SettingsPanel";
 import LabelQueue, { type QueueItem, type LabelGroup } from "@/components/LabelQueue";
 
 type QueryType = "model" | "barcode";
-type Page = "home" | "search" | "labels" | "training";
+type Page = "home" | "search" | "labels" | "training" | "admin";
 
 export default function App() {
+  const { user, isAdmin, loading, signOut } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp isAdmin={isAdmin} userEmail={user.email || ""} onSignOut={signOut} />;
+}
+
+function AuthenticatedApp({ isAdmin, userEmail, onSignOut }: { isAdmin: boolean; userEmail: string; onSignOut: () => void }) {
   const [query, setQuery] = useState("");
   const [queryType, setQueryType] = useState<QueryType>("model");
   const [loading, setLoading] = useState(false);
@@ -32,6 +53,7 @@ export default function App() {
   const [searchSources, setSearchSources] = useState<Array<{ id: string; name: string; url: string }>>([]);
   const [priceLimit, setPriceLimit] = useState(300);
   const [labelGroups, setLabelGroups] = useState<LabelGroup[]>([]);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const fetchHistory = useCallback(async () => {
     const { data, error: fetchError } = await supabase
@@ -48,7 +70,7 @@ export default function App() {
   const fetchSettings = useCallback(async () => {
     const [srcRes, priceRes] = await Promise.all([
       supabase.from("search_sources").select("*").order("created_at", { ascending: true }),
-      supabase.from("app_settings").select("*").eq("key", "price_limit").single(),
+      supabase.from("app_settings").select("*").eq("key", "price_limit").maybeSingle(),
     ]);
     if (srcRes.data) setSearchSources(srcRes.data);
     if (priceRes.data?.value) setPriceLimit(Number(priceRes.data.value));
@@ -95,7 +117,6 @@ export default function App() {
       setResult(data);
       setLastQuery({ query: searchQuery, type });
 
-      // Save to history
       await supabase.from("searches").insert({
         query: searchQuery,
         query_type: type,
@@ -237,12 +258,25 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setPage(page === "admin" ? "home" : "admin")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                  page === "admin"
+                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Users</span>
+              </button>
+            )}
             <button
               onClick={() => setShowSettings(true)}
               className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
             >
               <SettingsIcon className="h-4 w-4" />
-              <span>Settings</span>
+              <span className="hidden sm:inline">Settings</span>
             </button>
             <button
               onClick={() => setPage(page === "labels" ? "home" : "labels")}
@@ -271,13 +305,45 @@ export default function App() {
               className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
             >
               <HistoryIcon className="h-4 w-4" />
-              <span>History</span>
+              <span className="hidden sm:inline">History</span>
               {history.length > 0 && (
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
                   {history.length}
                 </span>
               )}
             </button>
+
+            {/* User menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200"
+              >
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                  {userEmail.charAt(0).toUpperCase()}
+                </div>
+                {isAdmin && <span className="text-xs text-emerald-600 font-bold">ADMIN</span>}
+                <ChevronDown className="h-3 w-3 text-gray-400" />
+              </button>
+              {showUserMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
+                    <div className="px-4 py-2">
+                      <p className="truncate text-sm font-semibold text-gray-900">{userEmail}</p>
+                      <p className="text-xs text-gray-400">{isAdmin ? "Administrator" : "Standard user"}</p>
+                    </div>
+                    <div className="border-t border-gray-100" />
+                    <button
+                      onClick={() => { setShowUserMenu(false); onSignOut(); }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-50"
+                    >
+                      <LogOut className="h-4 w-4" /> Sign Out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -289,6 +355,8 @@ export default function App() {
             onNavigate={setPage}
             onOpenHistory={() => { setPage("search"); setShowHistory(true); }}
           />
+        ) : page === "admin" ? (
+          isAdmin ? <AdminUsersPage onClose={() => setPage("home")} /> : <HomePage historyCount={history.length} onNavigate={setPage} onOpenHistory={() => { setPage("search"); setShowHistory(true); }} />
         ) : page === "labels" ? (
           <div className="space-y-4">
             <PrintLabels productResult={labelProduct} onClose={() => setPage("home")} />
@@ -307,7 +375,7 @@ export default function App() {
             />
           </div>
         ) : page === "training" ? (
-          <TrainingMaterials />
+          <TrainingMaterials isAdmin={isAdmin} />
         ) : (
         <>
         {/* Search card */}
@@ -425,7 +493,7 @@ export default function App() {
               <p className="mt-0.5 text-sm text-red-600">{error}</p>
               {error.includes("OPENAI_API_KEY") && (
                 <p className="mt-2 text-xs text-red-500">
-                  You need to add an OpenAI API key as an edge function secret in your Supabase project dashboard (Edge Functions → Secrets → Add secret → name: OPENAI_API_KEY).
+                  {"You need to add an OpenAI API key as an edge function secret in your Supabase project dashboard (Edge Functions > Secrets > Add secret > name: OPENAI_API_KEY)."}
                 </p>
               )}
             </div>

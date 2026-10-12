@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Settings, Plus, Trash2, Globe, DollarSign, Check, X, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 interface SearchSource {
   id: string;
@@ -9,6 +10,7 @@ interface SearchSource {
 }
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const { isAdmin } = useAuth();
   const [sources, setSources] = useState<SearchSource[]>([]);
   const [priceLimit, setPriceLimit] = useState("300");
   const [newName, setNewName] = useState("");
@@ -20,7 +22,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     setLoading(true);
     const [srcRes, setRes] = await Promise.all([
       supabase.from("search_sources").select("*").order("created_at", { ascending: true }),
-      supabase.from("app_settings").select("*").eq("key", "price_limit").single(),
+      supabase.from("app_settings").select("*").eq("key", "price_limit").maybeSingle(),
     ]);
     if (srcRes.data) setSources(srcRes.data as SearchSource[]);
     if (setRes.data?.value) setPriceLimit(setRes.data.value);
@@ -30,23 +32,25 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => { fetchAll(); }, []);
 
   const handleAddSource = async () => {
-    if (!newName.trim() || !newUrl.trim()) return;
+    if (!isAdmin || !newName.trim() || !newUrl.trim()) return;
     const { data } = await supabase
       .from("search_sources")
       .insert({ name: newName.trim(), url: newUrl.trim() })
       .select()
-      .single();
+      .maybeSingle();
     if (data) setSources((prev) => [...prev, data as SearchSource]);
     setNewName("");
     setNewUrl("");
   };
 
   const handleDeleteSource = async (id: string) => {
+    if (!isAdmin) return;
     await supabase.from("search_sources").delete().eq("id", id);
     setSources((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleSavePrice = async () => {
+    if (!isAdmin) return;
     setSavingPrice(true);
     await supabase.from("app_settings").upsert({ key: "price_limit", value: priceLimit, updated_at: new Date().toISOString() });
     setSavingPrice(false);
@@ -86,8 +90,8 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
               </div>
               <button
                 onClick={handleSavePrice}
-                disabled={savingPrice}
-                className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+                disabled={savingPrice || !isAdmin}
+                className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
               >
                 {savingPrice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Save
@@ -115,41 +119,49 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
                       <p className="truncate text-sm font-medium text-gray-700">{source.name}</p>
                       <p className="truncate text-xs text-gray-400">{source.url}</p>
                     </div>
-                    <button
-                      onClick={() => handleDeleteSource(source.id)}
-                      className="rounded-md p-1 text-gray-300 transition hover:bg-red-50 hover:text-red-500"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {!isAdmin && <span className="ml-auto text-xs text-gray-400">Admin only</span>}
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDeleteSource(source.id)}
+                        className="rounded-md p-1 text-gray-300 transition hover:bg-red-50 hover:text-red-500"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             ) : null}
 
             {/* Add new source */}
-            <div className="space-y-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Site name (e.g. Mercari, OfferUp)..."
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400"
-              />
-              <input
-                type="text"
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder="Website URL (e.g. https://mercari.com)..."
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400"
-              />
-              <button
-                onClick={handleAddSource}
-                disabled={!newName.trim() || !newUrl.trim()}
-                className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gray-900 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" /> Add Search Source
-              </button>
-            </div>
+            {isAdmin && (
+              <div className="space-y-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Site name (e.g. Mercari, OfferUp)..."
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400"
+                />
+                <input
+                  type="text"
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  placeholder="Website URL (e.g. https://mercari.com)..."
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-gray-400"
+                />
+                <button
+                  onClick={handleAddSource}
+                  disabled={!newName.trim() || !newUrl.trim()}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-gray-900 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
+                >
+                  <Plus className="h-4 w-4" /> Add Search Source
+                </button>
+              </div>
+            )}
+            {!isAdmin && (
+              <p className="text-xs text-gray-400">Only admin accounts can modify search sources and price settings.</p>
+            )}
           </div>
         </div>
       </div>

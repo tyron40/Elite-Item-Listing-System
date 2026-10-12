@@ -96,7 +96,7 @@ export default function CourseBuilder({
           description: description.trim() || null,
           passing_score: passScore,
           source_material_ids: [],
-        }).select().single();
+        }).select().maybeSingle();
         cId = (newCourse as { id: string })?.id;
       }
 

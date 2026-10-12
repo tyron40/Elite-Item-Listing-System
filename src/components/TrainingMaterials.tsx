@@ -7,6 +7,7 @@ import {
   Pencil, Trophy,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import type {
   TrainingMaterial, TrainingFolder,
   TrainingCourse, QuizQuestion, QuizAttempt,
@@ -44,12 +45,12 @@ function detectFileType(file: File): "document" | "image" | "video" {
   return "document";
 }
 
-function uploadWithProgress(bucket: string, path: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+function uploadWithProgress(bucket: string, path: string, file: File, onProgress: (pct: number) => void, accessToken: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const url = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/${bucket}/${path}`;
     xhr.open("POST", url);
-    xhr.setRequestHeader("Authorization", `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
     xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
     xhr.setRequestHeader("x-upsert", "false");
 
@@ -79,7 +80,7 @@ function uploadWithProgress(bucket: string, path: string, file: File, onProgress
 
 type SubView = "library" | "academy";
 
-export default function TrainingMaterials() {
+export default function TrainingMaterials({ isAdmin }: { isAdmin?: boolean }) {
   const [subView, setSubView] = useState<SubView>("library");
 
   return (
@@ -118,14 +119,15 @@ export default function TrainingMaterials() {
         </div>
       </div>
 
-      {subView === "library" ? <LibraryView /> : <CoursesView />}
+      {subView === "library" ? <LibraryView isAdmin={isAdmin} /> : <CoursesView isAdmin={isAdmin} />}
     </div>
   );
 }
 
 /* =========================== LIBRARY =========================== */
 
-function LibraryView() {
+function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
+  const { session } = useAuth();
   const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
   const [folders, setFolders] = useState<TrainingFolder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,7 +166,7 @@ function LibraryView() {
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
     const maxOrder = folders.length > 0 ? Math.max(...folders.map((f) => f.sort_order)) : 0;
-    const { data } = await supabase.from("training_folders").insert({ name: newFolderName.trim(), sort_order: maxOrder + 1 }).select().single();
+    const { data } = await supabase.from("training_folders").insert({ name: newFolderName.trim(), sort_order: maxOrder + 1 }).select().maybeSingle();
     if (data) setFolders((prev) => [...prev, data as TrainingFolder]);
     setNewFolderName("");
     setShowFolderInput(false);
@@ -203,7 +205,7 @@ function LibraryView() {
       const fileExt = selectedFile.name.split(".").pop() || "";
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
 
-      await uploadWithProgress(bucket, fileName, selectedFile, (pct) => setUploadProgress(pct));
+      await uploadWithProgress(bucket, fileName, selectedFile, (pct) => setUploadProgress(pct), session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY);
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
       const { error: insertError } = await supabase.from("training_materials").insert({
         title: newTitle.trim(), description: newDescription.trim() || null,
@@ -259,12 +261,14 @@ function LibraryView() {
           <h3 className="text-sm font-bold text-gray-900">Training Materials</h3>
           <p className="text-xs text-gray-400">{materials.length} items across {folders.length} folders</p>
         </div>
-        <button
-          onClick={() => { setUploadFolderId(activeFolderId); setShowUploadForm(!showUploadForm); }}
-          className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
-        >
-          <Upload className="h-4 w-4" /> Upload
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => { setUploadFolderId(activeFolderId); setShowUploadForm(!showUploadForm); }}
+            className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+          >
+            <Upload className="h-4 w-4" /> Upload
+          </button>
+        )}
       </div>
 
       {/* Folder tabs */}
@@ -297,10 +301,12 @@ function LibraryView() {
                   <Folder className="h-3.5 w-3.5" /> {folder.name}
                   <span className={`rounded-full px-1.5 py-0.5 text-xs ${activeFolderId === folder.id ? "bg-white/20" : "bg-gray-200"}`}>{folderCount(folder.id)}</span>
                 </button>
-                <button onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
-                  className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100"><Edit3 className="h-3 w-3" /></button>
-                <button onClick={() => handleDeleteFolder(folder)}
-                  className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"><Trash2 className="h-3 w-3" /></button>
+                {isAdmin && (<>
+                  <button onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
+                    className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100"><Edit3 className="h-3 w-3" /></button>
+                  <button onClick={() => handleDeleteFolder(folder)}
+                    className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"><Trash2 className="h-3 w-3" /></button>
+                </>)}
               </div>
             )}
           </div>
@@ -314,10 +320,14 @@ function LibraryView() {
             <button onClick={() => { setShowFolderInput(false); setNewFolderName(""); }} className="p-0.5 text-gray-400 hover:text-gray-600"><X className="h-3.5 w-3.5" /></button>
           </div>
         ) : (
-          <button onClick={() => setShowFolderInput(true)}
-            className="flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700">
-            <FolderPlus className="h-3.5 w-3.5" /> New Tab
-          </button>
+          <>
+            {isAdmin && (
+              <button onClick={() => setShowFolderInput(true)}
+                className="flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700">
+                <FolderPlus className="h-3.5 w-3.5" /> New Tab
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -463,14 +473,16 @@ function LibraryView() {
                           className="flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-100">
                           <Maximize2 className="h-3.5 w-3.5" /> Open
                         </button>
-                        <button onClick={() => startEdit(material)}
-                          className="flex items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100">
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={() => handleDeleteMaterial(material)}
-                          className="flex items-center justify-center rounded-md px-2.5 py-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-500">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {isAdmin && (<>
+                          <button onClick={() => startEdit(material)}
+                            className="flex items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100">
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteMaterial(material)}
+                            className="flex items-center justify-center rounded-md px-2.5 py-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-500">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>)}
                       </div>
                     </div>
                   </div>
@@ -484,7 +496,7 @@ function LibraryView() {
       {viewerMaterial && (
         <ContentViewer material={viewerMaterial} items={visibleMaterials}
           onClose={() => setViewerMaterial(null)} onNavigate={setViewerMaterial}
-          onDelete={() => { handleDeleteMaterial(viewerMaterial); setViewerMaterial(null); }} />
+          onDelete={() => { handleDeleteMaterial(viewerMaterial); setViewerMaterial(null); }} isAdmin={isAdmin} />
       )}
     </div>
   );
@@ -492,7 +504,7 @@ function LibraryView() {
 
 /* =========================== ACADEMY =========================== */
 
-function CoursesView() {
+function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
   const [courses, setCourses] = useState<TrainingCourse[]>([]);
   const [questions, setQuestions] = useState<Record<string, QuizQuestion[]>>({});
   const [attempts, setAttempts] = useState<Record<string, QuizAttempt[]>>({});
@@ -546,12 +558,14 @@ function CoursesView() {
           <h3 className="text-sm font-bold text-gray-900">Training Courses</h3>
           <p className="text-xs text-gray-400">{courses.length} courses with quizzes</p>
         </div>
-        <button
-          onClick={() => { setEditingCourse(null); setShowCourseBuilder(true); }}
-          className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
-        >
-          <Plus className="h-4 w-4" /> Create Course
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => { setEditingCourse(null); setShowCourseBuilder(true); }}
+            className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+          >
+            <Plus className="h-4 w-4" /> Create Course
+          </button>
+        )}
       </div>
 
       {/* Folder filter */}
@@ -634,18 +648,20 @@ function CoursesView() {
                         >
                           <Play className="h-3.5 w-3.5" /> Start Quiz
                         </button>
-                        <button
-                          onClick={() => setEditingCourse({ course, questions: courseQuestions })}
-                          className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCourse(course)}
-                          className="rounded-lg p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {isAdmin && (<>
+                          <button
+                            onClick={() => setEditingCourse({ course, questions: courseQuestions })}
+                            className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCourse(course)}
+                            className="rounded-lg p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </>)}
                       </div>
                     </div>
                   </div>
@@ -685,13 +701,14 @@ function CoursesView() {
 /* =========================== VIEWER =========================== */
 
 function ContentViewer({
-  material, items, onClose, onNavigate, onDelete,
+  material, items, onClose, onNavigate, onDelete, isAdmin,
 }: {
   material: TrainingMaterial;
   items: TrainingMaterial[];
   onClose: () => void;
   onNavigate: (m: TrainingMaterial) => void;
   onDelete: () => void;
+  isAdmin?: boolean;
 }) {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [textError, setTextError] = useState(false);
@@ -726,8 +743,8 @@ function ContentViewer({
         <div className="flex items-center gap-1">
           <a href={material.file_url} download={material.file_name} onClick={(e) => e.stopPropagation()}
             className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white"><Download className="h-5 w-5" /></a>
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="rounded-lg p-2 text-gray-400 transition hover:bg-red-500/20 hover:text-red-400"><Trash2 className="h-5 w-5" /></button>
+          {isAdmin && <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="rounded-lg p-2 text-gray-400 transition hover:bg-red-500/20 hover:text-red-400"><Trash2 className="h-5 w-5" /></button>}
           <button onClick={onClose} className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
       </div>
