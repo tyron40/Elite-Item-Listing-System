@@ -3,6 +3,7 @@ import {
   Printer, Plus, Trash2, Save, MapPin, Tag, Settings2,
   Bold, Layers, TestTube, X, ExternalLink,
   PanelRightClose, PanelRightOpen, Star, Search, Pencil,
+  FolderPlus, Folder, Check,
 } from "lucide-react";
 import type { ProductResult } from "@/lib/supabase";
 import {
@@ -14,7 +15,9 @@ import {
   getLabelPreferences, saveLabelPreferences,
   getSavedLocations, addSavedLocation, renameSavedLocation, deleteSavedLocation, setDefaultLocation,
   getLabelTemplates, saveLabelTemplate, updateLabelTemplate, deleteLabelTemplate, setDefaultTemplate,
-  type SavedLocation, type LabelTemplate,
+  getLabelTemplateGroups, createLabelTemplateGroup, renameLabelTemplateGroup, deleteLabelTemplateGroup,
+  moveTemplateToGroup,
+  type SavedLocation, type LabelTemplate, type LabelTemplateGroup,
 } from "@/lib/labelDb";
 
 interface PrintLabelsProps {
@@ -38,13 +41,21 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
   const [showLocationManager, setShowLocationManager] = useState(false);
   const [defaultLocation, setDefaultLocation] = useState("");
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);
+  const [templateGroups, setTemplateGroups] = useState<LabelTemplateGroup[]>([]);
+  const [activeTemplateGroupId, setActiveTemplateGroupId] = useState<string | null>(null);
   const [showTemplatePanel, setShowTemplatePanel] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplateGroupId, setNewTemplateGroupId] = useState<string | null>(null);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   const [templateSearch, setTemplateSearch] = useState("");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [showGroupInput, setShowGroupInput] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [moveMenuId, setMoveMenuId] = useState<string | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
   const templateNameInputRef = useRef<HTMLInputElement>(null);
@@ -93,6 +104,8 @@ export default function PrintLabels({ productResult, onClose }: PrintLabelsProps
 
       const tmpls = await getLabelTemplates();
       setTemplates(tmpls);
+      const groups = await getLabelTemplateGroups();
+      setTemplateGroups(groups);
       const defTmpl = tmpls.find((t) => t.is_default);
       if (defTmpl && defTmpl.layout?.fields) {
         setFields(defTmpl.layout.fields);
@@ -317,10 +330,44 @@ body { background: #fff; }
 
   async function handleSaveTemplate() {
     if (!newTemplateName.trim()) return;
-    await saveLabelTemplate(newTemplateName.trim(), { fields });
+    const saved = await saveLabelTemplate(newTemplateName.trim(), { fields });
+    if (saved && newTemplateGroupId) {
+      await moveTemplateToGroup(saved.id, newTemplateGroupId);
+    }
     const tmpls = await getLabelTemplates();
     setTemplates(tmpls);
     setNewTemplateName("");
+    setNewTemplateGroupId(null);
+  }
+
+  async function handleAddGroup() {
+    if (!newGroupName.trim()) return;
+    await createLabelTemplateGroup(newGroupName.trim());
+    const groups = await getLabelTemplateGroups();
+    setTemplateGroups(groups);
+    setNewGroupName("");
+    setShowGroupInput(false);
+  }
+
+  async function handleRenameGroup(id: string) {
+    if (!editingGroupName.trim()) return;
+    await renameLabelTemplateGroup(id, editingGroupName.trim());
+    setTemplateGroups((prev) => prev.map((g) => g.id === id ? { ...g, name: editingGroupName.trim() } : g));
+    setEditingGroupId(null);
+    setEditingGroupName("");
+  }
+
+  async function handleDeleteGroup(id: string) {
+    await deleteLabelTemplateGroup(id);
+    setTemplateGroups((prev) => prev.filter((g) => g.id !== id));
+    setTemplates((prev) => prev.map((t) => t.group_id === id ? { ...t, group_id: null } : t));
+    if (activeTemplateGroupId === id) setActiveTemplateGroupId(null);
+  }
+
+  async function handleMoveTemplate(templateId: string, groupId: string | null) {
+    await moveTemplateToGroup(templateId, groupId);
+    setTemplates((prev) => prev.map((t) => t.id === templateId ? { ...t, group_id: groupId } : t));
+    setMoveMenuId(null);
   }
 
   async function handleUpdateTemplate(id?: string) {
@@ -392,9 +439,12 @@ body { background: #fff; }
 
   const activeFields = fields.filter((f) => f.enabled && f.value);
   const activeTemplateName = templates.find((t) => t.id === activeTemplateId)?.name;
-  const filteredTemplates = templates.filter((t) =>
-    t.name.toLowerCase().includes(templateSearch.toLowerCase())
-  );
+  const filteredTemplates = templates.filter((t) => {
+    const matchesGroup = activeTemplateGroupId === null ? true : t.group_id === activeTemplateGroupId;
+    const matchesSearch = t.name.toLowerCase().includes(templateSearch.toLowerCase());
+    return matchesGroup && matchesSearch;
+  });
+  const groupCount = (gid: string | null) => gid ? templates.filter((t) => t.group_id === gid).length : templates.length;
 
   return (
     <div className="relative space-y-4">
@@ -834,25 +884,93 @@ body { background: #fff; }
             </div>
 
             {/* New template */}
-            <div className="flex gap-2">
-              <input
-                ref={templateNameInputRef}
-                type="text"
-                value={newTemplateName}
-                onChange={(e) => setNewTemplateName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveTemplate()}
-                placeholder="Name this template..."
-                className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400 focus:bg-white"
-              />
-              <button
-                onClick={handleSaveTemplate}
-                disabled={!newTemplateName.trim()}
-                className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
-                title="Create new template"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  ref={templateNameInputRef}
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveTemplate()}
+                  placeholder="Name this template..."
+                  className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400 focus:bg-white"
+                />
+                <button
+                  onClick={handleSaveTemplate}
+                  disabled={!newTemplateName.trim()}
+                  className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                  title="Create new template"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {templateGroups.length > 0 && (
+                <select
+                  value={newTemplateGroupId || ""}
+                  onChange={(e) => setNewTemplateGroupId(e.target.value || null)}
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs outline-none focus:border-emerald-400"
+                >
+                  <option value="">No group</option>
+                  {templateGroups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              )}
             </div>
+
+            {/* Group tabs */}
+            {(templateGroups.length > 0 || showGroupInput) && (
+              <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200 pb-1.5">
+                <button
+                  onClick={() => setActiveTemplateGroupId(null)}
+                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                    activeTemplateGroupId === null ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  <Folder className="h-3 w-3" /> All ({groupCount(null)})
+                </button>
+                {templateGroups.map((g) => (
+                  <div key={g.id} className="group flex shrink-0 items-center">
+                    {editingGroupId === g.id ? (
+                      <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 px-1.5 py-0.5">
+                        <input autoFocus value={editingGroupName} onChange={(e) => setEditingGroupName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleRenameGroup(g.id); if (e.key === "Escape") { setEditingGroupId(null); setEditingGroupName(""); } }}
+                          className="w-20 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none" />
+                        <button onClick={() => handleRenameGroup(g.id)} className="p-0.5 text-gray-600 hover:text-gray-900"><Check className="h-3 w-3" /></button>
+                        <button onClick={() => { setEditingGroupId(null); setEditingGroupName(""); }} className="p-0.5 text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center">
+                        <button onClick={() => setActiveTemplateGroupId(g.id)}
+                          className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                            activeTemplateGroupId === g.id ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}>
+                          <Folder className="h-3 w-3" /> {g.name} ({groupCount(g.id)})
+                        </button>
+                        <button onClick={() => { setEditingGroupId(g.id); setEditingGroupName(g.name); }}
+                          className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100"><Pencil className="h-2.5 w-2.5" /></button>
+                        <button onClick={() => handleDeleteGroup(g.id)}
+          className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"><Trash2 className="h-2.5 w-2.5" /></button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {showGroupInput ? (
+                  <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-gray-100 px-1.5 py-0.5">
+                    <input autoFocus value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddGroup(); if (e.key === "Escape") { setShowGroupInput(false); setNewGroupName(""); } }}
+                      placeholder="Group name..." className="w-24 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs outline-none" />
+                    <button onClick={handleAddGroup} className="p-0.5 text-gray-600 hover:text-gray-900"><Check className="h-3 w-3" /></button>
+                    <button onClick={() => { setShowGroupInput(false); setNewGroupName(""); }} className="p-0.5 text-gray-400 hover:text-gray-600"><X className="h-3 w-3" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowGroupInput(true)}
+                    className="flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-500 transition hover:border-gray-400 hover:text-gray-700">
+                    <FolderPlus className="h-3 w-3" /> New
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Search bar */}
             <div className="relative">
@@ -891,10 +1009,33 @@ body { background: #fff; }
                     className="flex flex-1 items-center gap-2 text-left"
                   >
                     <span className="flex-1 truncate text-sm font-medium text-gray-700">{tmpl.name}</span>
+                    {tmpl.group_id && templateGroups.find((g) => g.id === tmpl.group_id) && (
+                      <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500">{templateGroups.find((g) => g.id === tmpl.group_id)?.name}</span>
+                    )}
                     {tmpl.is_default && (
                       <Star className="h-3.5 w-3.5 fill-emerald-500 text-emerald-500" />
                     )}
                   </button>
+                  {/* Move menu */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setMoveMenuId(moveMenuId === tmpl.id ? null : tmpl.id)}
+                      className="rounded p-0.5 text-gray-300 transition hover:text-gray-600"
+                      title="Move to group"
+                    >
+                      <Folder className="h-3.5 w-3.5" />
+                    </button>
+                    {moveMenuId === tmpl.id && (
+                      <div className="absolute right-0 top-7 z-10 w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                        <button onClick={() => handleMoveTemplate(tmpl.id, null)}
+                          className="block w-full px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-50">No group</button>
+                        {templateGroups.map((g) => (
+                          <button key={g.id} onClick={() => handleMoveTemplate(tmpl.id, g.id)}
+                            className="block w-full px-3 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-50">{g.name}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   {!tmpl.is_default && (
                     <button
                       onClick={() => handleSetDefaultTemplate(tmpl.id)}

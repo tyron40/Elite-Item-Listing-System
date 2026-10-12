@@ -13,7 +13,57 @@ export interface LabelTemplate {
   name: string;
   layout: { fields: LabelField[] };
   is_default: boolean;
+  group_id: string | null;
   created_at: string;
+}
+
+export interface LabelTemplateGroup {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export async function getLabelTemplateGroups(): Promise<LabelTemplateGroup[]> {
+  const { data, error } = await supabase
+    .from("label_template_groups")
+    .select("*")
+    .order("sort_order", { ascending: true });
+
+  if (error || !data) return [];
+  return data as LabelTemplateGroup[];
+}
+
+export async function createLabelTemplateGroup(name: string): Promise<LabelTemplateGroup | null> {
+  const { data: existing } = await supabase
+    .from("label_template_groups")
+    .select("id, sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextOrder = existing ? ((existing as { id: string; sort_order: number }).sort_order || 0) + 1 : 0;
+
+  const { data, error } = await supabase
+    .from("label_template_groups")
+    .insert({ name, sort_order: nextOrder })
+    .select()
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data as LabelTemplateGroup;
+}
+
+export async function renameLabelTemplateGroup(id: string, name: string): Promise<void> {
+  await supabase.from("label_template_groups").update({ name }).eq("id", id);
+}
+
+export async function deleteLabelTemplateGroup(id: string): Promise<void> {
+  await supabase.from("label_template_groups").delete().eq("id", id);
+}
+
+export async function moveTemplateToGroup(templateId: string, groupId: string | null): Promise<void> {
+  await supabase.from("label_templates").update({ group_id: groupId }).eq("id", templateId);
 }
 
 export async function getLabelPreferences(): Promise<LabelPreferences | null> {

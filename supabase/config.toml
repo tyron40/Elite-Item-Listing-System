@@ -1,2 +1,5 @@
 [functions.product-lookup]
 verify_jwt = false
+
+[functions.generate-quiz]
+verify_jwt = false
