@@ -5,9 +5,35 @@
     <script>(function(s){s.dataset.zone='12018140',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
     <!-- Experimental bottom placement for one In-Page Push zone. Monetag may render outside this container. -->
     <style>
-      #monetag-bottom-slot { position: fixed; inset-inline: 0; bottom: 0; bottom: env(safe-area-inset-bottom, 0px); z-index: 40; display: none; justify-content: center; pointer-events: none; }
+      /* Responsive fallback container. Monetag may render ads outside this element. */
+      #monetag-bottom-slot {
+        position: fixed;
+        left: 50%;
+        right: auto;
+        bottom: env(safe-area-inset-bottom, 0px);
+        transform: translateX(-50%);
+        width: min(100%, 728px);
+        max-width: 100vw;
+        max-height: min(35dvh, 180px);
+        z-index: 40;
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        overflow: visible;
+        pointer-events: none;
+      }
       #monetag-bottom-slot.has-creative { display: flex; }
-      #monetag-bottom-slot > :not(script) { pointer-events: auto; max-width: 100%; }
+      #monetag-bottom-slot > :not(script) {
+        max-width: 100%;
+        max-height: min(35dvh, 180px);
+        pointer-events: auto;
+      }
+      #monetag-bottom-slot iframe,
+      #monetag-bottom-slot img { max-width: 100%; }
+      @media (max-width: 640px) {
+        #monetag-bottom-slot { width: 100%; max-height: min(25dvh, 110px); }
+        #monetag-bottom-slot > :not(script) { max-height: min(25dvh, 110px); }
+      }
       @media print { #monetag-bottom-slot { display: none !important; } }
     </style>
     <meta charset="UTF-8" />
