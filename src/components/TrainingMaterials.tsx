@@ -106,13 +106,13 @@ async function uploadLargeVideo(
       data: file,
       meta: { bucketName: "training-videos", objectName: path, contentType: file.type || "video/mp4" },
     });
-    uppy.on("progress", onProgress);
+    uppy.on("progress", (progress) => onProgress(progress));
     const result = await uppy.upload();
     if (result?.failed?.length) throw new Error(result.failed[0].error?.message || "Video upload failed.");
     if (!result?.successful?.length) throw new Error("Video upload did not complete.");
   } finally {
-    await uppy.cancelAll();
-    await uppy.destroy();
+    uppy.cancelAll();
+    uppy.destroy();
   }
 }
 
