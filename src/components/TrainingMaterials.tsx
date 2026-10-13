@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
+import Uppy from "@uppy/core";
+import Tus from "@uppy/tus";
 import {
   FileText, Image as ImageIcon, Video, Upload, Trash2,
   Loader2, Plus, X, Download, Maximize2, Calendar, HardDrive,
@@ -76,6 +78,42 @@ function uploadWithProgress(bucket: string, path: string, file: File, onProgress
     xhr.onerror = () => reject(new Error("Network error during upload"));
     xhr.send(file);
   });
+}
+
+const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+
+async function uploadLargeVideo(
+  file: File, path: string, token: string, onProgress: (pct: number) => void,
+): Promise<void> {
+  const storageUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!storageUrl || !token) throw new Error("Storage authentication is unavailable. Please sign in again.");
+  const uppy = new Uppy({ autoProceed: false, restrictions: { maxNumberOfFiles: 1 } })
+    .use(Tus, {
+      endpoint: `${storageUrl}/storage/v1/upload/resumable`,
+      chunkSize: 6 * 1024 * 1024,
+      retryDelays: [0, 1000, 3000, 5000, 10000],
+      headers: {
+        authorization: `Bearer ${token}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        "x-upsert": "false",
+      },
+      uploadDataDuringCreation: true,
+    });
+  try {
+    uppy.addFile({
+      name: file.name,
+      type: file.type || "video/mp4",
+      data: file,
+      meta: { bucketName: "training-videos", objectName: path, contentType: file.type || "video/mp4" },
+    });
+    uppy.on("progress", onProgress);
+    const result = await uppy.upload();
+    if (result?.failed?.length) throw new Error(result.failed[0].error?.message || "Video upload failed.");
+    if (!result?.successful?.length) throw new Error("Video upload did not complete.");
+  } finally {
+    await uppy.cancelAll();
+    await uppy.destroy();
+  }
 }
 
 type SubView = "library" | "academy";
@@ -193,6 +231,7 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setError(null);
     setSelectedFile(file);
     if (!newTitle) setNewTitle(file.name.replace(/\.[^/.]+$/, ""));
   };
@@ -208,7 +247,16 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
       const fileExt = selectedFile.name.split(".").pop() || "";
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
 
-      await uploadWithProgress(bucket, fileName, selectedFile, (pct) => setUploadProgress(pct), session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY);
+      if (fileType === "video" && selectedFile.size > VIDEO_MAX_BYTES) {
+        throw new Error("This video exceeds the 500 MB per-file limit. Please compress it and try again.");
+      }
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) throw new Error("Your session expired. Please sign in again.");
+      if (fileType === "video") {
+        await uploadLargeVideo(selectedFile, fileName, token, setUploadProgress);
+      } else {
+        await uploadWithProgress(bucket, fileName, selectedFile, setUploadProgress, token);
+      }
       const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
       const { error: insertError } = await supabase.from("training_materials").insert({
         title: newTitle.trim(), description: newDescription.trim() || null,
