@@ -139,6 +139,7 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadFolderId, setUploadFolderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [viewerMaterial, setViewerMaterial] = useState<TrainingMaterial | null>(null);
   const [showFolderInput, setShowFolderInput] = useState(false);
@@ -174,7 +175,9 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
 
   const handleRenameFolder = async (id: string) => {
     if (!editingFolderName.trim()) return;
-    await supabase.from("training_folders").update({ name: editingFolderName.trim() }).eq("id", id);
+    const { data, error: renameError } = await supabase.from("training_folders").update({ name: editingFolderName.trim() }).eq("id", id).select("id").maybeSingle();
+    if (renameError || !data) { setError(renameError?.message || "Folder could not be updated. Check administrator access."); return; }
+    setError(null);
     setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: editingFolderName.trim() } : f)));
     setEditingFolderId(null);
     setEditingFolderName("");
@@ -233,13 +236,22 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
   };
 
   const handleSaveEdit = async () => {
-    if (!editingMaterial || !editTitle.trim()) return;
-    await supabase.from("training_materials").update({
-      title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId,
-    }).eq("id", editingMaterial.id);
-    setMaterials((prev) => prev.map((m) => m.id === editingMaterial.id
-      ? { ...m, title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId } : m));
-    setEditingMaterial(null); setEditTitle(""); setEditDescription(""); setEditFolderId(null);
+    if (!editingMaterial || !editTitle.trim() || savingEdit) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const { data, error: saveError } = await supabase.from("training_materials").update({
+        title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId,
+      }).eq("id", editingMaterial.id).select("id").maybeSingle();
+      if (saveError || !data) throw new Error(saveError?.message || "Changes were not saved. Check administrator access.");
+      setMaterials((prev) => prev.map((m) => m.id === editingMaterial.id
+        ? { ...m, title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId } : m));
+      setEditingMaterial(null); setEditTitle(""); setEditDescription(""); setEditFolderId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save changes");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const startEdit = (material: TrainingMaterial) => {
@@ -303,9 +315,9 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
                 </button>
                 {isAdmin && (<>
                   <button onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
-                    className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100"><Edit3 className="h-3 w-3" /></button>
+                    className="ml-0.5 rounded p-0.5 text-gray-400 opacity-0 transition hover:text-gray-700 group-hover:opacity-100 focus:opacity-100 max-md:opacity-100"><Edit3 className="h-3 w-3" /></button>
                   <button onClick={() => handleDeleteFolder(folder)}
-                    className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"><Trash2 className="h-3 w-3" /></button>
+                    className="rounded p-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100 focus:opacity-100 max-md:opacity-100"><Trash2 className="h-3 w-3" /></button>
                 </>)}
               </div>
             )}
@@ -410,9 +422,10 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
                 {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
             </div>
-            <button onClick={handleSaveEdit} disabled={!editTitle.trim()}
+            {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+            <button onClick={handleSaveEdit} disabled={!editTitle.trim() || savingEdit}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50">
-              <Check className="h-4 w-4" /> Save Changes
+              <Check className="h-4 w-4" /> {savingEdit ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </div>
