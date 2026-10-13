@@ -14,6 +14,7 @@ const AuthContext = createContext<AuthState & {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signInWithUsername: (username: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, username?: string) => Promise<{ error: string | null }>;
+  signUpWithUsername: (username: string, password: string, email?: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }>({
   user: null,
@@ -24,6 +25,7 @@ const AuthContext = createContext<AuthState & {
   signIn: async () => ({ error: "Not implemented" }),
   signInWithUsername: async () => ({ error: "Not implemented" }),
   signUp: async () => ({ error: "Not implemented" }),
+  signUpWithUsername: async () => ({ error: "Not implemented" }),
   signOut: async () => {},
 });
 
@@ -110,6 +112,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  const signUpWithUsername = async (uname: string, password: string, email?: string) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/signup-username`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: uname, password, email: email || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { error: data.error || "Sign up failed" };
+      }
+      if (data.access_token) {
+        const { error } = await supabase.auth.setSession({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+        });
+        return { error: error?.message ?? null };
+      }
+      return { error: "Account created. Please sign in." };
+    } catch {
+      return { error: "Sign up failed. Please try again." };
+    }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -119,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, username, loading, signIn, signInWithUsername, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, isAdmin, username, loading, signIn, signInWithUsername, signUp, signUpWithUsername, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -12,3 +12,6 @@ verify_jwt = false
 
 [functions.login-username]
 verify_jwt = false
+
+[functions.signup-username]
+verify_jwt = false

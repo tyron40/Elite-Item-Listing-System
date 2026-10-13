@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { PackageSearch, Loader2, Lock, Mail, User as UserIcon, Shield, AtSign } from "lucide-react";
+import { PackageSearch, Loader2, Lock, Mail, Shield, AtSign } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export default function LoginPage({ customSlug }: { customSlug?: string }) {
-  const { signIn, signInWithUsername, signUp } = useAuth();
+  const { signIn, signInWithUsername, signUp, signUpWithUsername } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loginMethod, setLoginMethod] = useState<"username" | "email">("username");
   const [identifier, setIdentifier] = useState("");
@@ -21,27 +21,39 @@ export default function LoginPage({ customSlug }: { customSlug?: string }) {
     setSuccess(null);
 
     if (mode === "signin") {
+      if (!identifier.trim() || !password.trim()) { setLoading(false); return; }
       if (loginMethod === "username") {
-        if (!identifier.trim() || !password.trim()) { setLoading(false); return; }
         const { error: err } = await signInWithUsername(identifier.trim(), password);
         if (err) setError(err);
       } else {
-        if (!identifier.trim() || !password.trim()) { setLoading(false); return; }
         const { error: err } = await signIn(identifier.trim(), password);
         if (err) setError(err);
       }
     } else {
-      if (!email.trim() || !password.trim()) { setLoading(false); return; }
-      const { error: err } = await signUp(email.trim(), password, username.trim() || undefined);
-      if (err) {
-        setError(err);
+      // Sign up: username required, email optional
+      if (!username.trim() || !password.trim()) { setLoading(false); return; }
+      if (email.trim()) {
+        // Has email — use email-based signup with username
+        const { error: err } = await signUp(email.trim(), password, username.trim());
+        if (err) { setError(err); }
+        else {
+          setSuccess("Account created! You can now sign in.");
+          setMode("signin"); setPassword("");
+        }
       } else {
-        setSuccess("Account created! You can now sign in.");
-        setMode("signin");
-        setPassword("");
+        // Username-only signup via edge function
+        const { error: err } = await signUpWithUsername(username.trim(), password);
+        if (err) { setError(err); }
+        // On success, the edge function signs them in automatically
       }
     }
     setLoading(false);
+  };
+
+  const canSubmit = () => {
+    if (loading) return false;
+    if (mode === "signin") return !!(identifier.trim() && password.trim());
+    return !!(username.trim() && password.trim());
   };
 
   return (
@@ -129,8 +141,9 @@ export default function LoginPage({ customSlug }: { customSlug?: string }) {
               </>
             ) : (
               <>
+                {/* Sign up: username required, email optional */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-500">Username (optional)</label>
+                  <label className="mb-1 block text-xs font-medium text-gray-500">Username</label>
                   <div className="relative">
                     <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <input
@@ -141,16 +154,19 @@ export default function LoginPage({ customSlug }: { customSlug?: string }) {
                       className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                     />
                   </div>
+                  <p className="mt-1 text-xs text-gray-400">This is what you'll use to sign in</p>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
+                  <label className="mb-1 block text-xs font-medium text-gray-500">
+                    Email <span className="text-gray-300">(optional)</span>
+                  </label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
+                      placeholder="Leave blank to sign up with username only"
                       className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                     />
                   </div>
@@ -166,7 +182,7 @@ export default function LoginPage({ customSlug }: { customSlug?: string }) {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="At least 6 characters"
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 />
               </div>
@@ -174,7 +190,7 @@ export default function LoginPage({ customSlug }: { customSlug?: string }) {
 
             <button
               type="submit"
-              disabled={loading || (mode === "signin" ? !identifier.trim() || !password.trim() : !email.trim() || !password.trim())}
+              disabled={!canSubmit()}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "signin" ? "Sign In" : "Create Account"}
