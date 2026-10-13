@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { PackageSearch, Loader2, Lock, Mail, User as UserIcon, Shield } from "lucide-react";
+import { PackageSearch, Loader2, Lock, Mail, User as UserIcon, Shield, AtSign } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
-export default function LoginPage() {
-  const { signIn, signUp } = useAuth();
+export default function LoginPage({ customSlug }: { customSlug?: string }) {
+  const { signIn, signInWithUsername, signUp } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [loginMethod, setLoginMethod] = useState<"username" | "email">("username");
+  const [identifier, setIdentifier] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -13,16 +16,23 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) return;
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     if (mode === "signin") {
-      const { error: err } = await signIn(email.trim(), password);
-      if (err) setError(err);
+      if (loginMethod === "username") {
+        if (!identifier.trim() || !password.trim()) { setLoading(false); return; }
+        const { error: err } = await signInWithUsername(identifier.trim(), password);
+        if (err) setError(err);
+      } else {
+        if (!identifier.trim() || !password.trim()) { setLoading(false); return; }
+        const { error: err } = await signIn(identifier.trim(), password);
+        if (err) setError(err);
+      }
     } else {
-      const { error: err } = await signUp(email.trim(), password);
+      if (!email.trim() || !password.trim()) { setLoading(false); return; }
+      const { error: err } = await signUp(email.trim(), password, username.trim() || undefined);
       if (err) {
         setError(err);
       } else {
@@ -35,7 +45,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40 px-4 py-8">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center">
@@ -47,7 +57,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-gray-200/80 bg-white/90 p-8 shadow-xl shadow-gray-200/50 backdrop-blur-sm">
+        <div className="rounded-2xl border border-gray-200/80 bg-white/90 p-6 shadow-xl shadow-gray-200/50 backdrop-blur-sm sm:p-8">
           {/* Tab toggle */}
           <div className="mb-6 flex gap-1 rounded-xl bg-gray-100 p-1">
             <button
@@ -77,19 +87,76 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                />
-              </div>
-            </div>
+            {mode === "signin" ? (
+              <>
+                {/* Login method toggle */}
+                <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => { setLoginMethod("username"); setIdentifier(""); setError(null); }}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition ${loginMethod === "username" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}
+                  >
+                    <AtSign className="h-3.5 w-3.5" /> Username
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setLoginMethod("email"); setIdentifier(""); setError(null); }}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition ${loginMethod === "email" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"}`}
+                  >
+                    <Mail className="h-3.5 w-3.5" /> Email
+                  </button>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-500">
+                    {loginMethod === "username" ? "Username" : "Email"}
+                  </label>
+                  <div className="relative">
+                    {loginMethod === "username" ? (
+                      <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    ) : (
+                      <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    )}
+                    <input
+                      type={loginMethod === "email" ? "email" : "text"}
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      placeholder={loginMethod === "username" ? "Enter your username" : "you@example.com"}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-500">Username (optional)</label>
+                  <div className="relative">
+                    <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Choose a username"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-800 placeholder-gray-400 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
 
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-500">Password</label>
@@ -107,7 +174,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !email.trim() || !password.trim()}
+              disabled={loading || (mode === "signin" ? !identifier.trim() || !password.trim() : !email.trim() || !password.trim())}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "signin" ? "Sign In" : "Create Account"}
@@ -120,7 +187,7 @@ export default function LoginPage() {
             <div>
               <p className="text-xs font-medium text-gray-600">Admin Access</p>
               <p className="mt-0.5 text-xs text-gray-400">
-                Use email <code className="rounded bg-gray-200 px-1 text-gray-600">admin@admin.com</code> and password <code className="rounded bg-gray-200 px-1 text-gray-600">Admin123!@#secure</code> for the admin account.
+                Sign in with username <code className="rounded bg-gray-200 px-1 text-gray-600">admin</code> and password <code className="rounded bg-gray-200 px-1 text-gray-600">Admin123!@#secure</code>.
               </p>
             </div>
           </div>

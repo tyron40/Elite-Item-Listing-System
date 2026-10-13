@@ -22,6 +22,7 @@ Deno.serve(async (req: Request) => {
 
     const adminEmail = "admin@admin.com";
     const adminPassword = "Admin123!@#secure";
+    const adminUsername = "admin";
 
     const { data: existing } = await supabase
       .from("profiles")
@@ -30,15 +31,13 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (existing) {
-      const { data: updated } = await supabase
+      await supabase
         .from("profiles")
-        .update({ is_admin: true })
-        .eq("id", existing.id)
-        .select("id, email, is_admin")
-        .single();
+        .update({ is_admin: true, username: adminUsername })
+        .eq("id", existing.id);
 
       return new Response(
-        JSON.stringify({ message: "Admin account already exists and was re-confirmed as admin", profile: updated }),
+        JSON.stringify({ message: "Admin account confirmed", username: adminUsername }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -58,7 +57,7 @@ Deno.serve(async (req: Request) => {
 
     const { error: profileError } = await supabase
       .from("profiles")
-      .update({ is_admin: true })
+      .update({ is_admin: true, username: adminUsername })
       .eq("id", authData.user.id);
 
     if (profileError) {
@@ -69,7 +68,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ message: "Admin account created successfully", userId: authData.user.id }),
+      JSON.stringify({ message: "Admin account created", username: adminUsername }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
