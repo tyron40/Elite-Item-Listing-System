@@ -90,10 +90,20 @@ export default function CourseBuilder({
           description: description.trim() || null,
           passing_score: passScore,
         }).eq("id", cId);
-        if (courseError) throw courseError;
+        if (courseError) {
+          if (courseError.message.includes("row-level security") || courseError.code === "42501") {
+            throw new Error("Permission denied. Only admin accounts can edit courses. If you are admin, try signing out and back in.");
+          }
+          throw courseError;
+        }
         // Delete old questions
         const { error: deleteError } = await supabase.from("quiz_questions").delete().eq("course_id", cId);
-        if (deleteError) throw deleteError;
+        if (deleteError) {
+          if (deleteError.message.includes("row-level security") || deleteError.code === "42501") {
+            throw new Error("Permission denied editing quiz questions.");
+          }
+          throw deleteError;
+        }
       } else {
         const { data: newCourse, error: createError } = await supabase.from("training_courses").insert({
           title: title.trim(),
@@ -101,7 +111,13 @@ export default function CourseBuilder({
           passing_score: passScore,
           source_material_ids: [],
         }).select().maybeSingle();
-        if (createError || !newCourse) throw createError || new Error("Course creation failed.");
+        if (createError) {
+          if (createError.message.includes("row-level security") || createError.code === "42501") {
+            throw new Error("Permission denied. Only admin accounts can create courses.");
+          }
+          throw createError;
+        }
+        if (!newCourse) throw new Error("Course creation failed.");
         cId = (newCourse as { id: string }).id;
       }
 
@@ -115,7 +131,12 @@ export default function CourseBuilder({
           sort_order: i,
         }));
         const { error: questionError } = await supabase.from("quiz_questions").insert(insertData);
-        if (questionError) throw questionError;
+        if (questionError) {
+          if (questionError.message.includes("row-level security") || questionError.code === "42501") {
+            throw new Error("Permission denied saving quiz questions.");
+          }
+          throw questionError;
+        }
       }
 
       onSave();

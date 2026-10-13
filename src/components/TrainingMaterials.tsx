@@ -78,7 +78,7 @@ function uploadWithProgress(bucket: string, path: string, file: File, onProgress
   });
 }
 
-const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+const VIDEO_MAX_BYTES = 1024 * 1024 * 1024;
 
 function encodeTusMetadata(value: string): string {
   return btoa(Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join(""));
@@ -235,7 +235,15 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
   const handleRenameFolder = async (id: string) => {
     if (!editingFolderName.trim()) return;
     const { data, error: renameError } = await supabase.from("training_folders").update({ name: editingFolderName.trim() }).eq("id", id).select("id").maybeSingle();
-    if (renameError || !data) { setError(renameError?.message || "Folder could not be updated. Check administrator access."); return; }
+    if (renameError) {
+      if (renameError.message.includes("row-level security") || renameError.code === "42501") {
+        setError("Permission denied. Only admin accounts can rename folders.");
+      } else {
+        setError(renameError.message);
+      }
+      return;
+    }
+    if (!data) { setError("Folder could not be updated. You may not have admin access."); return; }
     setError(null);
     setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: editingFolderName.trim() } : f)));
     setEditingFolderId(null);
@@ -269,7 +277,7 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
       const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
 
       if (fileType === "video" && selectedFile.size > VIDEO_MAX_BYTES) {
-        throw new Error("This video exceeds the 500 MB per-file limit. Please compress it and try again.");
+        throw new Error("This video exceeds the 1 GB per-file limit. Please compress it and try again.");
       }
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       if (!token) throw new Error("Your session expired. Please sign in again.");
@@ -284,7 +292,12 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
         file_type: fileType, file_url: urlData.publicUrl, file_name: selectedFile.name,
         file_size: selectedFile.size, folder_id: uploadFolderId,
       });
-      if (insertError) throw new Error(insertError.message);
+      if (insertError) {
+        if (insertError.message.includes("row-level security") || insertError.code === "42501") {
+          throw new Error("Permission denied. Only admin accounts can upload materials. If you are admin, try signing out and back in.");
+        }
+        throw new Error(insertError.message);
+      }
       setNewTitle(""); setNewDescription(""); setSelectedFile(null);
       setUploadFolderId(activeFolderId); setShowUploadForm(false);
       fetchAll();
@@ -312,7 +325,13 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
       const { data, error: saveError } = await supabase.from("training_materials").update({
         title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId,
       }).eq("id", editingMaterial.id).select("id").maybeSingle();
-      if (saveError || !data) throw new Error(saveError?.message || "Changes were not saved. Check administrator access.");
+      if (saveError) {
+        if (saveError.message.includes("row-level security") || saveError.code === "42501") {
+          throw new Error("Permission denied. Only admin accounts can edit materials. If you are admin, try signing out and back in.");
+        }
+        throw new Error(saveError.message);
+      }
+      if (!data) throw new Error("Changes were not saved. You may not have admin access.");
       setMaterials((prev) => prev.map((m) => m.id === editingMaterial.id
         ? { ...m, title: editTitle.trim(), description: editDescription.trim() || null, folder_id: editFolderId } : m));
       setEditingMaterial(null); setEditTitle(""); setEditDescription(""); setEditFolderId(null);
