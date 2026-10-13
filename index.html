@@ -3,39 +3,6 @@
   <head>
     <script>(function(s){s.dataset.zone='12018198',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
     <script>(function(s){s.dataset.zone='12018140',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
-    <!-- Experimental bottom placement for one In-Page Push zone. Monetag may render outside this container. -->
-    <style>
-      /* Responsive fallback container. Monetag may render ads outside this element. */
-      #monetag-bottom-slot {
-        position: fixed;
-        left: 50%;
-        right: auto;
-        bottom: env(safe-area-inset-bottom, 0px);
-        transform: translateX(-50%);
-        width: min(100%, 728px);
-        max-width: 100vw;
-        max-height: min(35dvh, 180px);
-        z-index: 40;
-        display: none;
-        align-items: flex-end;
-        justify-content: center;
-        overflow: visible;
-        pointer-events: none;
-      }
-      #monetag-bottom-slot.has-creative { display: flex; }
-      #monetag-bottom-slot > :not(script) {
-        max-width: 100%;
-        max-height: min(35dvh, 180px);
-        pointer-events: auto;
-      }
-      #monetag-bottom-slot iframe,
-      #monetag-bottom-slot img { max-width: 100%; }
-      @media (max-width: 640px) {
-        #monetag-bottom-slot { width: 100%; max-height: min(25dvh, 110px); }
-        #monetag-bottom-slot > :not(script) { max-height: min(25dvh, 110px); }
-      }
-      @media print { #monetag-bottom-slot { display: none !important; } }
-    </style>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -49,23 +16,7 @@
 </head>
   <body>
     <div id="root"></div>
-    <div id="monetag-bottom-slot" aria-label="Advertisement"></div>
-    <script>
-      (function () {
-        var slot = document.getElementById('monetag-bottom-slot');
-        if (!slot) return;
-        // Show the fixed container only if the provider renders an actual element inside it.
-        var observer = new MutationObserver(function () {
-          slot.classList.toggle('has-creative', !!slot.querySelector('iframe, ins, a, img, [id], [class]'));
-        });
-        observer.observe(slot, { childList: true, subtree: true });
-        var tag = document.createElement('script');
-        tag.dataset.zone = '12018241';
-        tag.src = 'https://nap5k.com/tag.min.js';
-        tag.onerror = function () { slot.classList.remove('has-creative'); };
-        slot.appendChild(tag);
-      })();
-    </script>
+    <script>(function(s){s.dataset.zone='12018241',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
