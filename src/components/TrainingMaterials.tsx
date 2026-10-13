@@ -165,7 +165,6 @@ export default function TrainingMaterials({ isAdmin }: { isAdmin?: boolean }) {
 /* =========================== LIBRARY =========================== */
 
 function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
-  const { session } = useAuth();
   const [materials, setMaterials] = useState<TrainingMaterial[]>([]);
   const [folders, setFolders] = useState<TrainingFolder[]>([]);
   const [loading, setLoading] = useState(true);
