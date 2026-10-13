@@ -1,6 +1,4 @@
 import { useEffect, useState, useCallback } from "react";
-import Uppy from "@uppy/core";
-import Tus from "@uppy/tus";
 import {
   FileText, Image as ImageIcon, Video, Upload, Trash2,
   Loader2, Plus, X, Download, Maximize2, Calendar, HardDrive,
@@ -82,37 +80,61 @@ function uploadWithProgress(bucket: string, path: string, file: File, onProgress
 
 const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
 
+function encodeTusMetadata(value: string): string {
+  return btoa(Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join(""));
+}
+
 async function uploadLargeVideo(
   file: File, path: string, token: string, onProgress: (pct: number) => void,
 ): Promise<void> {
   const storageUrl = import.meta.env.VITE_SUPABASE_URL;
   if (!storageUrl || !token) throw new Error("Storage authentication is unavailable. Please sign in again.");
-  const uppy = new Uppy({ autoProceed: false, restrictions: { maxNumberOfFiles: 1 } })
-    .use(Tus, {
-      endpoint: `${storageUrl}/storage/v1/upload/resumable`,
-      chunkSize: 6 * 1024 * 1024,
-      retryDelays: [0, 1000, 3000, 5000, 10000],
-      headers: {
-        authorization: `Bearer ${token}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        "x-upsert": "false",
-      },
-      uploadDataDuringCreation: true,
-    });
-  try {
-    uppy.addFile({
-      name: file.name,
-      type: file.type || "video/mp4",
-      data: file,
-      meta: { bucketName: "training-videos", objectName: path, contentType: file.type || "video/mp4" },
-    });
-    uppy.on("progress", (progress) => onProgress(progress));
-    const result = await uppy.upload();
-    if (result?.failed?.length) throw new Error(result.failed[0].error?.message || "Video upload failed.");
-    if (!result?.successful?.length) throw new Error("Video upload did not complete.");
-  } finally {
-    uppy.cancelAll();
-    uppy.destroy();
+  const endpoint = `${storageUrl}/storage/v1/upload/resumable`;
+  const headers = {
+    authorization: `Bearer ${token}`,
+    apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+    "tus-resumable": "1.0.0",
+  };
+  const metadata = [
+    ["bucketName", "training-videos"],
+    ["objectName", path],
+    ["contentType", file.type || "video/mp4"],
+    ["cacheControl", "3600"],
+  ].map(([key, value]) => `${key} ${encodeTusMetadata(value)}`).join(",");
+  const created = await fetch(endpoint, {
+    method: "POST",
+    headers: { ...headers, "upload-length": String(file.size), "upload-metadata": metadata, "x-upsert": "false" },
+  });
+  if (!created.ok) throw new Error(`Could not start video upload (${created.status}): ${await created.text()}`);
+  const location = created.headers.get("location");
+  if (!location) throw new Error("Storage did not return an upload URL.");
+  const url = new URL(location, endpoint).toString();
+  const chunkSize = 6 * 1024 * 1024;
+  let offset = 0;
+  while (offset < file.size) {
+    let completed = false;
+    for (let attempt = 0; attempt < 5 && !completed; attempt++) {
+      try {
+        const patch = await fetch(url, {
+          method: "PATCH",
+          headers: { ...headers, "content-type": "application/offset+octet-stream", "upload-offset": String(offset) },
+          body: file.slice(offset, offset + chunkSize),
+        });
+        if (!patch.ok) throw new Error(`Video upload failed (${patch.status}): ${await patch.text()}`);
+        offset = Number(patch.headers.get("upload-offset") ?? Math.min(offset + chunkSize, file.size));
+        if (!Number.isFinite(offset) || offset > file.size) throw new Error("Invalid upload offset returned by storage.");
+        onProgress(Math.round((offset / file.size) * 100));
+        completed = true;
+      } catch (error) {
+        if (attempt === 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        const head = await fetch(url, { method: "HEAD", headers });
+        if (head.ok) {
+          const serverOffset = Number(head.headers.get("upload-offset"));
+          if (Number.isFinite(serverOffset) && serverOffset >= 0 && serverOffset <= file.size) offset = serverOffset;
+        }
+      }
+    }
   }
 }
 
