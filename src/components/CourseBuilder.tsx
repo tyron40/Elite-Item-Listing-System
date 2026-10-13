@@ -39,6 +39,7 @@ export default function CourseBuilder({
       : [makeNewQuestion()]
   );
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   function makeNewQuestion(): EditableQuestion {
     return {
@@ -80,24 +81,28 @@ export default function CourseBuilder({
     if (validQuestions.length === 0) return;
 
     setSaving(true);
+    setSaveError(null);
     try {
       let cId = courseId;
       if (cId) {
-        await supabase.from("training_courses").update({
+        const { error: courseError } = await supabase.from("training_courses").update({
           title: title.trim(),
           description: description.trim() || null,
           passing_score: passScore,
         }).eq("id", cId);
+        if (courseError) throw courseError;
         // Delete old questions
-        await supabase.from("quiz_questions").delete().eq("course_id", cId);
+        const { error: deleteError } = await supabase.from("quiz_questions").delete().eq("course_id", cId);
+        if (deleteError) throw deleteError;
       } else {
-        const { data: newCourse } = await supabase.from("training_courses").insert({
+        const { data: newCourse, error: createError } = await supabase.from("training_courses").insert({
           title: title.trim(),
           description: description.trim() || null,
           passing_score: passScore,
           source_material_ids: [],
         }).select().maybeSingle();
-        cId = (newCourse as { id: string })?.id;
+        if (createError || !newCourse) throw createError || new Error("Course creation failed.");
+        cId = (newCourse as { id: string }).id;
       }
 
       if (cId) {
@@ -109,12 +114,14 @@ export default function CourseBuilder({
           explanation: q.explanation.trim() || null,
           sort_order: i,
         }));
-        await supabase.from("quiz_questions").insert(insertData);
+        const { error: questionError } = await supabase.from("quiz_questions").insert(insertData);
+        if (questionError) throw questionError;
       }
 
       onSave();
     } catch (e) {
       console.error("Save course error:", e);
+      setSaveError(e instanceof Error ? e.message : "Unable to save course.");
     } finally {
       setSaving(false);
     }
@@ -245,6 +252,8 @@ export default function CourseBuilder({
           >
             <Plus className="h-4 w-4" /> Add Question
           </button>
+
+          {saveError && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{saveError}</p>}
 
           {/* Save bar */}
           <div className="sticky bottom-0 mt-6 -mx-5 flex gap-2 border-t border-gray-200 bg-white/90 px-5 py-4 backdrop-blur">
