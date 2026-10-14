@@ -753,7 +753,7 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
                         </button>
                         {isAdmin && (<>
                           <button
-                            onClick={() => setEditingCourse({ course, questions: courseQuestions })}
+                            onClick={() => { setEditingCourse({ course, questions: courseQuestions }); setShowCourseBuilder(true); }}
                             className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
                           >
                             <Pencil className="h-3.5 w-3.5" />
