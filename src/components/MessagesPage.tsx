@@ -26,6 +26,8 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [adminIds, setAdminIds] = useState<string[]>([]);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
@@ -53,13 +55,14 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
   }, []);
 
   const fetchUsers = useCallback(async () => {
-    if (!isAdmin) return;
     const { data } = await supabase
       .from("profiles")
       .select("id, email, username, is_admin")
-      .neq("id", user?.id || "")
       .order("email", { ascending: true });
-    if (data) setUsers(data as UserProfile[]);
+    if (data) {
+      setAdminIds((data as UserProfile[]).filter((u) => u.is_admin).map((u) => u.id));
+      setUsers(isAdmin ? (data as UserProfile[]).filter((u) => u.id !== user?.id) : []);
+    }
   }, [isAdmin, user]);
 
   useEffect(() => { fetchMessages(); fetchUsers(); }, [fetchMessages, fetchUsers]);
@@ -150,12 +153,13 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
   const formatDate = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const senderName = (id: string) => {
+    if (adminIds.includes(id)) return "Admin";
     if (id === user?.id) return "You";
     const u = users.find((u) => u.id === id);
     return u ? (u.username || u.email) : "Unknown";
   };
 
-  const myMessages = messages.filter((m) => m.recipient_id === user?.id || m.sender_id === user?.id);
+  const myMessages = messages.filter((m) => m.recipient_id === user?.id || m.sender_id === user?.id || (m.recipient_id === null && m.sender_id !== user?.id));
   const unreadCount = myMessages.filter((m) => m.recipient_id === user?.id && !m.read_at).length;
 
   // Thread view for selected message
@@ -167,6 +171,7 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
 
   return (
     <div className="space-y-4">
+      {previewImage && <div role="dialog" aria-label="Image preview" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4" onClick={() => setPreviewImage(null)}><button type="button" aria-label="Close preview" className="absolute right-5 top-5 rounded-full bg-white p-2" onClick={() => setPreviewImage(null)}><X className="h-5 w-5" /></button><img src={previewImage} alt="Full-size attachment preview" className="max-h-[90vh] max-w-[95vw] object-contain" onClick={(e) => e.stopPropagation()} /></div>}
       {/* Header */}
       <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-5 py-4">
         <div className="flex items-center gap-3">
@@ -238,6 +243,7 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
                 <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => handleImageSelect(e, setComposeImage)} className="hidden" />
               </label>
             </div>
+            {composeImage && <button type="button" onClick={() => setPreviewImage(URL.createObjectURL(composeImage))} className="text-sm text-emerald-700 underline">Preview attached image</button>}
             <button onClick={handleSend} disabled={sending || (!composeBody.trim() && !composeImage)}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50">
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send Message
@@ -277,7 +283,7 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
                   </div>
                   {msg.body && <p className="text-sm text-gray-700">{msg.body}</p>}
                   {msg.image_url && (
-                    <img src={msg.image_url} alt="Attachment" className="mt-2 max-h-64 rounded-lg object-cover" />
+                    <button type="button" onClick={() => setPreviewImage(msg.image_url)} className="mt-2 block" title="Preview full-size image"><img src={msg.image_url} alt="Attachment (click to preview)" className="max-h-64 rounded-lg object-cover" /></button>
                   )}
                 </div>
               ))}
@@ -296,6 +302,7 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
                       {replyImage ? replyImage.name : "Image"}
                       <input ref={replyFileRef} type="file" accept="image/*" onChange={(e) => handleImageSelect(e, setReplyImage)} className="hidden" />
                     </label>
+                    {replyImage && <button type="button" onClick={() => setPreviewImage(URL.createObjectURL(replyImage))} className="text-xs text-emerald-700 underline">Preview</button>}
                     <button onClick={() => handleReply(selectedMessage)} disabled={sendingReply || (!replyBody.trim() && !replyImage)}
                       className="ml-auto flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50">
                       {sendingReply ? <Loader2 className="h-4 w-4 animate-spin" /> : <Reply className="h-4 w-4" />} Reply
@@ -317,7 +324,7 @@ export default function MessagesPage({ isAdmin, onClose }: { isAdmin: boolean; o
       ) : (
         <div className="space-y-2">
           {myMessages.map((msg) => {
-            const isIncoming = msg.recipient_id === user?.id;
+            const isIncoming = msg.recipient_id === user?.id || (msg.recipient_id === null && msg.sender_id !== user?.id);
             const isUnread = isIncoming && !msg.read_at;
             return (
               <button key={msg.id}
