@@ -622,28 +622,37 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [courseRes, folderRes, videoRes] = await Promise.all([
-      supabase.from("training_courses").select("*").order("created_at", { ascending: false }),
-      supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
-    ]);
-    const courseList = (courseRes.data || []) as TrainingCourse[];
-    setCourses(courseList);
-    setCourseVideos(Object.fromEntries(((videoRes.data || []) as TrainingMaterial[]).map((v) => [v.id, v])));
-    setFolders((folderRes.data || []) as TrainingFolder[]);
-
-    const qMap: Record<string, QuizQuestion[]> = {};
-    const aMap: Record<string, QuizAttempt[]> = {};
-    for (const course of courseList) {
-      const [qRes, aRes] = await Promise.all([
-        supabase.from("quiz_questions").select("*").eq("course_id", course.id).order("sort_order", { ascending: true }),
-        supabase.from("quiz_attempts").select("*").eq("course_id", course.id).order("created_at", { ascending: false }).limit(5),
+    try {
+      const [courseRes, folderRes, videoRes] = await Promise.all([
+        supabase.from("training_courses").select("*").order("created_at", { ascending: false }),
+        supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
+        supabase.from("training_materials").select("*").eq("file_type", "video"),
       ]);
-      if (qRes.data) qMap[course.id] = qRes.data as QuizQuestion[];
-      if (aRes.data) aMap[course.id] = aRes.data as QuizAttempt[];
+      if (courseRes.error) throw courseRes.error;
+      const courseList = (courseRes.data || []) as TrainingCourse[];
+      setCourses(courseList);
+      setFolders((folderRes.data || []) as TrainingFolder[]);
+      setCourseVideos(Object.fromEntries(((videoRes.data || []) as TrainingMaterial[]).map((v) => [v.id, v])));
+      // Load all course questions and recent attempts concurrently rather than one course at a time.
+      const [qRes, aRes] = await Promise.all([
+        supabase.from("quiz_questions").select("*").in("course_id", courseList.map((c) => c.id).length ? courseList.map((c) => c.id) : ["00000000-0000-0000-0000-000000000000"]).order("sort_order", { ascending: true }),
+        supabase.from("quiz_attempts").select("*").in("course_id", courseList.map((c) => c.id).length ? courseList.map((c) => c.id) : ["00000000-0000-0000-0000-000000000000"]).order("created_at", { ascending: false }).limit(100),
+      ]);
+      if (qRes.error) console.error("Loading quiz questions:", qRes.error);
+      if (aRes.error) console.error("Loading quiz attempts:", aRes.error);
+      const qMap: Record<string, QuizQuestion[]> = {};
+      const aMap: Record<string, QuizAttempt[]> = {};
+      for (const q of (qRes.data || []) as QuizQuestion[]) (qMap[q.course_id] ||= []).push(q);
+      for (const a of (aRes.data || []) as QuizAttempt[]) {
+        if ((aMap[a.course_id] || []).length < 5) (aMap[a.course_id] ||= []).push(a);
+      }
+      setQuestions(qMap);
+      setAttempts(aMap);
+    } catch (error) {
+      console.error("Loading courses:", error);
+    } finally {
+      setLoading(false);
     }
-    setQuestions(qMap);
-    setAttempts(aMap);
-    setLoading(false);
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
