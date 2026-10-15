@@ -215,6 +215,7 @@ function LibraryView({ isAdmin }: { isAdmin?: boolean }) {
     const [matRes, folderRes] = await Promise.all([
       supabase.from("training_materials").select("*").order("created_at", { ascending: false }),
       supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
+      supabase.from("training_materials").select("*").eq("file_type", "video"),
     ]);
     if (matRes.data) setMaterials(matRes.data as TrainingMaterial[]);
     if (folderRes.data) setFolders(folderRes.data as TrainingFolder[]);
@@ -612,6 +613,7 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
   const [questions, setQuestions] = useState<Record<string, QuizQuestion[]>>({});
   const [attempts, setAttempts] = useState<Record<string, QuizAttempt[]>>({});
   const [folders, setFolders] = useState<TrainingFolder[]>([]);
+  const [courseVideos, setCourseVideos] = useState<Record<string, TrainingMaterial>>({});
   const [loading, setLoading] = useState(true);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [showCourseBuilder, setShowCourseBuilder] = useState(false);
@@ -620,12 +622,13 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [courseRes, folderRes] = await Promise.all([
+    const [courseRes, folderRes, videoRes] = await Promise.all([
       supabase.from("training_courses").select("*").order("created_at", { ascending: false }),
       supabase.from("training_folders").select("*").order("sort_order", { ascending: true }),
     ]);
     const courseList = (courseRes.data || []) as TrainingCourse[];
     setCourses(courseList);
+    setCourseVideos(Object.fromEntries(((videoRes.data || []) as TrainingMaterial[]).map((v) => [v.id, v])));
     setFolders((folderRes.data || []) as TrainingFolder[]);
 
     const qMap: Record<string, QuizQuestion[]> = {};
@@ -725,6 +728,12 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
                     <div className="flex flex-1 flex-col p-5">
                       <p className="text-sm font-bold text-gray-900">{course.title}</p>
                       {course.description && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{course.description}</p>}
+                      {(course.source_material_ids || []).map((id) => courseVideos[id]).filter(Boolean).map((video) => (
+                        <div key={video.id} className="mt-3">
+                          <video controls preload="metadata" src={video.file_url} className="w-full rounded-lg" />
+                          <p className="mt-1 truncate text-xs text-gray-500">{video.title}</p>
+                        </div>
+                      ))}
 
                       <div className="mt-4 flex items-center gap-4 text-xs text-gray-400">
                         <span className="flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" /> {courseQuestions.length} Qs</span>
@@ -783,6 +792,7 @@ function CoursesView({ isAdmin }: { isAdmin?: boolean }) {
           initialDescription={editingCourse?.course.description || ""}
           initialQuestions={editingCourse?.questions || []}
           passingScore={editingCourse?.course.passing_score || 70}
+          initialMaterialIds={editingCourse?.course.source_material_ids || []}
           onSave={() => { setShowCourseBuilder(false); setEditingCourse(null); fetchAll(); }}
           onCancel={() => { setShowCourseBuilder(false); setEditingCourse(null); }}
         />
