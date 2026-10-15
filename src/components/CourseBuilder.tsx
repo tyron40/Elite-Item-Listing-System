@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Plus, Trash2, Save, X, GripVertical } from "lucide-react";
-import type { QuizQuestion } from "@/lib/training-types";
+import { useEffect, useState } from "react";
+import { Plus, Trash2, Save, X, GripVertical, Upload, Video } from "lucide-react";
+import type { QuizQuestion, TrainingMaterial } from "@/lib/training-types";
 import { supabase } from "@/lib/supabase";
 
 interface CourseBuilderProps {
@@ -9,6 +9,7 @@ interface CourseBuilderProps {
   initialDescription: string;
   initialQuestions: QuizQuestion[];
   passingScore: number;
+  initialMaterialIds?: string[];
   onSave: () => void;
   onCancel: () => void;
 }
@@ -21,8 +22,69 @@ interface EditableQuestion {
   explanation: string;
 }
 
+const VIDEO_MAX_BYTES = 1024 * 1024 * 1024;
+
+function encodeTusMetadata(value: string): string {
+  return btoa(Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join(""));
+}
+
+async function uploadLargeVideo(
+  file: File, path: string, token: string, onProgress: (pct: number) => void,
+): Promise<void> {
+  const storageUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (!storageUrl || !token) throw new Error("Storage authentication is unavailable. Please sign in again.");
+  const endpoint = `${storageUrl}/storage/v1/upload/resumable`;
+  const headers = {
+    authorization: `Bearer ${token}`,
+    apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+    "tus-resumable": "1.0.0",
+  };
+  const metadata = [
+    ["bucketName", "training-videos"],
+    ["objectName", path],
+    ["contentType", file.type || "video/mp4"],
+    ["cacheControl", "3600"],
+  ].map(([key, value]) => `${key} ${encodeTusMetadata(value)}`).join(",");
+  const created = await fetch(endpoint, {
+    method: "POST",
+    headers: { ...headers, "upload-length": String(file.size), "upload-metadata": metadata, "x-upsert": "false" },
+  });
+  if (!created.ok) throw new Error(`Could not start video upload (${created.status}): ${await created.text()}`);
+  const location = created.headers.get("location");
+  if (!location) throw new Error("Storage did not return an upload URL.");
+  const url = new URL(location, endpoint).toString();
+  const chunkSize = 6 * 1024 * 1024;
+  let offset = 0;
+  while (offset < file.size) {
+    let completed = false;
+    for (let attempt = 0; attempt < 5 && !completed; attempt++) {
+      try {
+        const patch = await fetch(url, {
+          method: "PATCH",
+          headers: { ...headers, "content-type": "application/offset+octet-stream", "upload-offset": String(offset) },
+          body: file.slice(offset, offset + chunkSize),
+        });
+        if (!patch.ok) throw new Error(`Video upload failed (${patch.status}): ${await patch.text()}`);
+        offset = Number(patch.headers.get("upload-offset") ?? Math.min(offset + chunkSize, file.size));
+        if (!Number.isFinite(offset) || offset > file.size) throw new Error("Invalid upload offset returned by storage.");
+        onProgress(Math.round((offset / file.size) * 100));
+        completed = true;
+      } catch (error) {
+        if (attempt === 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        const head = await fetch(url, { method: "HEAD", headers });
+        if (head.ok) {
+          const serverOffset = Number(head.headers.get("upload-offset"));
+          if (Number.isFinite(serverOffset) && serverOffset >= 0 && serverOffset <= file.size) offset = serverOffset;
+        }
+      }
+    }
+  }
+}
+
+
 export default function CourseBuilder({
-  courseId, initialTitle, initialDescription, initialQuestions, passingScore, onSave, onCancel,
+  courseId, initialTitle, initialDescription, initialQuestions, passingScore, initialMaterialIds = [], onSave, onCancel,
 }: CourseBuilderProps) {
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState(initialDescription);
@@ -38,8 +100,48 @@ export default function CourseBuilder({
         }))
       : [makeNewQuestion()]
   );
+  const [materialIds, setMaterialIds] = useState<string[]>(initialMaterialIds);
+  const [availableVideos, setAvailableVideos] = useState<TrainingMaterial[]>([]);
+  const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.from("training_materials").select("*").eq("file_type", "video").order("created_at", { ascending: false })
+      .then(({ data }) => setAvailableVideos((data || []) as TrainingMaterial[]));
+  }, []);
+
+  async function handleVideoUpload() {
+    if (!selectedVideo) return;
+    setVideoError(null);
+    setUploadingVideo(true);
+    setVideoProgress(0);
+    try {
+      if (selectedVideo.size > VIDEO_MAX_BYTES) throw new Error("Video exceeds the 1 GB limit.");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Please sign in again to upload videos.");
+      const path = `${crypto.randomUUID()}-${selectedVideo.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      await uploadLargeVideo(selectedVideo, path, token, setVideoProgress);
+      const { data: urlData } = supabase.storage.from("training-videos").getPublicUrl(path);
+      const { data, error } = await supabase.from("training_materials").insert({
+        title: selectedVideo.name.replace(/\\.[^.]+$/, ""), description: null,
+        file_type: "video", file_name: path, file_url: urlData.publicUrl, file_size: selectedVideo.size,
+      }).select("*").single();
+      if (error) throw error;
+      const material = data as TrainingMaterial;
+      setAvailableVideos((prev) => [material, ...prev]);
+      setMaterialIds((prev) => [...prev, material.id]);
+      setSelectedVideo(null);
+    } catch (e) {
+      setVideoError(e instanceof Error ? e.message : "Video upload failed");
+    } finally {
+      setUploadingVideo(false);
+    }
+  }
 
   function makeNewQuestion(): EditableQuestion {
     return {
@@ -78,7 +180,7 @@ export default function CourseBuilder({
   async function handleSave() {
     if (!title.trim()) return;
     const validQuestions = questions.filter((q) => q.question_text.trim() && q.options.every((o) => o.text.trim()));
-    if (validQuestions.length === 0) return;
+    if (validQuestions.length === 0 && materialIds.length === 0) { setSaveError("Add a video or at least one complete quiz question."); return; }
 
     setSaving(true);
     setSaveError(null);
@@ -89,6 +191,7 @@ export default function CourseBuilder({
           title: title.trim(),
           description: description.trim() || null,
           passing_score: passScore,
+          source_material_ids: materialIds,
         }).eq("id", cId);
         if (courseError) {
           if (courseError.message.includes("row-level security") || courseError.code === "42501") {
@@ -109,7 +212,7 @@ export default function CourseBuilder({
           title: title.trim(),
           description: description.trim() || null,
           passing_score: passScore,
-          source_material_ids: [],
+          source_material_ids: materialIds,
         }).select().maybeSingle();
         if (createError) {
           if (createError.message.includes("row-level security") || createError.code === "42501") {
@@ -121,7 +224,7 @@ export default function CourseBuilder({
         cId = (newCourse as { id: string }).id;
       }
 
-      if (cId) {
+      if (cId && validQuestions.length > 0) {
         const insertData = validQuestions.map((q, i) => ({
           course_id: cId,
           question_text: q.question_text.trim(),
@@ -192,6 +295,26 @@ export default function CourseBuilder({
                 className="w-full"
               />
             </div>
+          </div>
+
+          {/* Course videos */}
+          <div className="mb-6 rounded-xl border border-gray-200 bg-white p-5">
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Video className="h-4 w-4" /> Course Videos</h3>
+            <p className="mb-3 text-xs text-gray-500">Attach existing videos or upload a new video directly to this course (up to 1 GB).</p>
+            <div className="space-y-2">
+              {availableVideos.map((video) => (
+                <label key={video.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={materialIds.includes(video.id)} onChange={(e) => setMaterialIds((prev) => e.target.checked ? [...prev, video.id] : prev.filter((id) => id !== video.id))} />
+                  <span className="truncate">{video.title}</span>
+                </label>
+              ))}
+            </div>
+            <input type="file" accept="video/*,.mp4,.mov,.webm" className="mt-4 block w-full text-sm" disabled={uploadingVideo} onChange={(e) => setSelectedVideo(e.target.files?.[0] || null)} />
+            <button type="button" onClick={handleVideoUpload} disabled={!selectedVideo || uploadingVideo} className="mt-2 flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40">
+              <Upload className="h-4 w-4" /> {uploadingVideo ? `Uploading ${videoProgress}%` : "Upload & Attach Video"}
+            </button>
+            {uploadingVideo && <progress className="mt-2 w-full" value={videoProgress} max={100} />}
+            {videoError && <p role="alert" className="mt-2 text-sm text-red-600">{videoError}</p>}
           </div>
 
           {/* Questions */}
@@ -286,7 +409,7 @@ export default function CourseBuilder({
             </button>
             <button
               onClick={handleSave}
-              disabled={!title.trim() || saving}
+              disabled={!title.trim() || saving || uploadingVideo}
               className="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-40"
             >
               <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save Course"}
