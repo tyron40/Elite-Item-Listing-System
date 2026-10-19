@@ -34,3 +34,7 @@ The selected file is a bootable PC recovery toolkit, not a Windows/macOS/ChromeO
 - `npx deno check --no-lock supabase/functions/recovery-control/index.ts`
 
 Live integration checks exercise anonymous rejection, invalid device-token rejection, pairing-code replay denial, token-bound command delivery, report sanitization, result acknowledgement and revocation. Hardware actions are not executed during integration tests. USB releases run BIOS and UEFI virtual boot checks separately.
+
+## Published companion image
+
+USB release [bootable-5](https://github.com/tyron40/Ty-Recovery-USB/releases/tag/bootable-5) includes the companion and menu option 6. BIOS and UEFI virtual boot checks passed. The server catalog pins its SHA-256 to `053db68a071f4574234952d0163ea62e9df3ac50dee7959024718b946ec542c4`.
