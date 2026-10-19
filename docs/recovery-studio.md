@@ -38,3 +38,7 @@ Live integration checks exercise anonymous rejection, invalid device-token rejec
 ## Published companion image
 
 USB release [bootable-5](https://github.com/tyron40/Ty-Recovery-USB/releases/tag/bootable-5) includes the companion and menu option 6. BIOS and UEFI virtual boot checks passed. The server catalog pins its SHA-256 to `053db68a071f4574234952d0163ea62e9df3ac50dee7959024718b946ec542c4`.
+
+
+### Graphical companion
+The graphical source helper is `recovery-gui.pyw`, alongside `companion.py`. It displays the hardware report before pairing, accepts a dashboard code, and uses local confirmation dialogs. Close the window to disconnect. Python 3 with Tk and a graphical file association is required on an installed OS; no signed standalone desktop installer is included. The next USB build includes Xorg, Tk and graphical network settings, and launches the helper automatically on tty1 after live boot. Selecting USB at firmware startup may still require a person. The ISO boot smoke test does not prove that the GUI works on every display or that OS installation works. There is no erase or OS installer in this version.

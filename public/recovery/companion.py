@@ -219,7 +219,7 @@ def firmware_restart(command, client=None):
     return 'completed', 'Firmware restart command submitted. Arrival in firmware settings has not been verified.'
 
 
-def main():
+def main(code_provider=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report-only', action='store_true', help='Print local JSON; upload nothing')
     parser.add_argument('--download-directory', default=str(Path.home() / 'Downloads' / 'Elite-Recovery'))
@@ -228,7 +228,7 @@ def main():
     print(json.dumps(report, indent=2))
     if args.report_only: return
     print('\nPair with Elite Recovery using a code from your signed-in dashboard.\nThe report above is shared only after you approve. No serial numbers or personal files are collected.\nDevice credentials remain in memory; closing this program disconnects it.')
-    code = getpass.getpass('Paste the pairing code (hidden): ').strip()
+    code = (code_provider() if code_provider else getpass.getpass('Paste the pairing code (hidden): ')).strip()
     if not re.fullmatch(r'[a-f0-9]{48}', code):
         raise ValueError('Pairing code must contain 48 lowercase hex characters')
     if not confirm('Share this hardware report with the Elite account that generated the code?', 'PAIR'):
