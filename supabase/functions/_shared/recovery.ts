@@ -2,10 +2,10 @@ export const PROTOCOL_VERSION = 1;
 export const TOOLKIT = {
   name: 'Ty Recovery USB — bootable PC toolkit',
   filename: 'Ty-Recovery-USB-amd64.iso',
-  url: 'https://github.com/tyron40/Ty-Recovery-USB/releases/download/bootable-5/Ty-Recovery-USB-amd64.iso',
-  release: 'https://github.com/tyron40/Ty-Recovery-USB/releases/tag/bootable-5',
-  sha256: '053db68a071f4574234952d0163ea62e9df3ac50dee7959024718b946ec542c4',
-  max_bytes: 536870912,
+  url: 'https://github.com/tyron40/Ty-Recovery-USB/releases/download/bootable-6/Ty-Recovery-USB-amd64.iso',
+  release: 'https://github.com/tyron40/Ty-Recovery-USB/releases/tag/bootable-6',
+  sha256: '5ea522a80a299de3deb3533f84ae92384c45aa66a4d6ad6dc17aa777838a333f',
+  max_bytes: 1073741824,
   purpose: 'Bootable live toolkit; not an operating-system installer or factory image.',
 };
 export type TargetOS = 'unknown' | 'windows' | 'macos' | 'chromeos' | 'linux';

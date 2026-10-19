@@ -23,7 +23,7 @@ import urllib.request
 
 ENDPOINT = 'https://giunepklvuwgboaektzd.supabase.co/functions/v1/recovery-control'
 VERSION = '1.0.0'
-MAX_IMAGE_BYTES = 536870912
+MAX_IMAGE_BYTES = 1073741824
 
 
 def text(path):
@@ -159,7 +159,7 @@ def validate_image(payload):
 
 def download_toolkit(client, command, directory):
     url, digest = validate_image(command['payload'])
-    if not confirm('Download the bootable PC toolkit (up to 512 MiB)? This does not install or boot it.', 'DOWNLOAD'):
+    if not confirm('Download the bootable PC toolkit (up to 1 GiB)? This does not install or boot it.', 'DOWNLOAD'):
         return 'declined', 'Download declined locally.'
     if expired(command):
         return 'declined', 'Request expired before local approval.'
