@@ -180,21 +180,21 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-gray-200/60 bg-white/70 backdrop-blur-xl">
-        <div className="mx-auto max-w-6xl px-4 py-3">
-          <div className="flex items-center justify-between">
+        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center justify-between gap-4">
             {/* Logo */}
-            <button onClick={() => handleNavigate("home")} className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
+            <button onClick={() => handleNavigate("home")} className="flex min-w-0 shrink-0 items-center gap-2.5 text-left">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
                 <PackageSearch className="h-5 w-5 text-white" />
               </div>
-              <div className="hidden sm:block">
-                <h1 className="text-base font-bold tracking-wide text-gray-900">ELITE ITEM LISTING TOOL</h1>
-                <p className="text-xs text-gray-500">Identify, price & list</p>
+              <div className="min-w-0">
+                <h1 className="text-sm font-extrabold leading-tight tracking-tight text-gray-900 sm:text-base">Elite Item Listing</h1>
+                <p className="text-[11px] text-gray-500">{isAdmin ? "Admin Dashboard" : "Identify, price & list"}</p>
               </div>
             </button>
 
             {/* Desktop nav */}
-            <div className="hidden items-center gap-1.5 lg:flex">
+            <div className="hidden min-w-0 items-center gap-1.5 2xl:flex">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -252,12 +252,12 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
             </div>
 
             {/* Mobile menu button */}
-            <div className="flex items-center gap-2 lg:hidden">
+            <div className="flex shrink-0 items-center gap-2 2xl:hidden">
               {unreadMessages > 0 && (
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{unreadMessages}</span>
               )}
               <button onClick={() => setShowMobileMenu(!showMobileMenu)}
-                className="rounded-lg bg-gray-100 p-2 text-gray-600 transition hover:bg-gray-200">
+                className="rounded-lg bg-gray-100 p-2 text-gray-600 transition hover:bg-gray-200" aria-label={showMobileMenu ? "Close navigation" : "Open navigation"} aria-expanded={showMobileMenu}>
                 {showMobileMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </button>
             </div>
@@ -265,7 +265,7 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
 
           {/* Mobile nav drawer */}
           {showMobileMenu && (
-            <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 lg:hidden">
+            <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 2xl:hidden">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
