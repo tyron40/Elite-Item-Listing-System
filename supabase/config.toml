@@ -15,3 +15,8 @@ verify_jwt = false
 
 [functions.signup-username]
 verify_jwt = false
+
+# Browser calls use verified user JWTs; companions use hashed session tokens.
+# The function authenticates both inside the handler.
+[functions.recovery-control]
+verify_jwt = false

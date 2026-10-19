@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon, ArrowRight, TrendingUp, Award, FileText, LogOut, Users, ChevronDown, Menu, MessageSquare, LayoutTemplate, Home } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { Search, ScanLine, Loader2, AlertCircle, PackageSearch, History as HistoryIcon, X, RefreshCw, Camera, Tag, BookOpen, Settings as SettingsIcon, ArrowRight, TrendingUp, Award, FileText, LogOut, Users, ChevronDown, Menu, MessageSquare, LayoutTemplate, Home, Usb } from "lucide-react";
 import { supabase, type ProductResult, type SearchRecord } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import LoginPage from "@/components/LoginPage";
@@ -15,8 +15,10 @@ import TrainingMaterials from "@/components/TrainingMaterials";
 import SettingsPanel from "@/components/SettingsPanel";
 import LabelQueue, { type QueueItem, type LabelGroup } from "@/components/LabelQueue";
 
+const RecoveryPage = lazy(() => import("@/components/RecoveryPage"));
+
 type QueryType = "model" | "barcode";
-type Page = "home" | "search" | "labels" | "training" | "admin" | "messages" | "login-pages";
+type Page = "home" | "search" | "labels" | "training" | "admin" | "messages" | "login-pages" | "recovery";
 
 export default function App() {
   const { user, isAdmin, loading, signOut } = useAuth();
@@ -49,7 +51,12 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
   const [showHistory, setShowHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastQuery, setLastQuery] = useState<{ query: string; type: QueryType } | null>(null);
-  const [page, setPage] = useState<Page>("home");
+  const [page, setPage] = useState<Page>(() => window.location.hash === "#recovery" ? "recovery" : "home");
+  useEffect(() => {
+    const update = () => { if (window.location.hash === "#recovery") setPage("recovery"); };
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
   const [labelProduct, setLabelProduct] = useState<ProductResult | null>(null);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -167,6 +174,7 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
     { key: "search", label: "Search", icon: Search },
     { key: "labels", label: "Labels", icon: Tag },
     { key: "training", label: "Training", icon: BookOpen },
+    { key: "recovery", label: "Recovery", icon: Usb },
     { key: "messages", label: "Messages", icon: MessageSquare, badge: unreadMessages },
     ...(isAdmin ? [
       { key: "admin" as Page, label: "Users", icon: Users, adminOnly: true },
@@ -174,7 +182,7 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
     ] : []),
   ];
 
-  const handleNavigate = (p: Page) => { setPage(p); setShowMobileMenu(false); setShowHistory(false); };
+  const handleNavigate = (p: Page) => { window.history.replaceState(null, "", p === "recovery" ? "#recovery" : window.location.pathname + window.location.search); setPage(p); setShowMobileMenu(false); setShowHistory(false); };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
@@ -306,6 +314,8 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
       <main className="mx-auto max-w-6xl px-4 py-6">
         {page === "home" ? (
           <HomePage historyCount={history.length} onNavigate={handleNavigate} onOpenHistory={() => { setPage("search"); setShowHistory(true); }} unreadMessages={unreadMessages} />
+        ) : page === "recovery" ? (
+          <Suspense fallback={<div className="flex items-center gap-2 p-8 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" />Loading Recovery Studio…</div>}><RecoveryPage /></Suspense>
         ) : page === "admin" ? (
           isAdmin ? <AdminUsersPage onClose={() => setPage("home")} /> : <HomePage historyCount={history.length} onNavigate={handleNavigate} onOpenHistory={() => { setPage("search"); setShowHistory(true); }} unreadMessages={unreadMessages} />
         ) : page === "messages" ? (
@@ -433,6 +443,7 @@ function HomePage({ historyCount, onNavigate, onOpenHistory, unreadMessages }: {
   }, []);
 
   const features = [
+    { title: "Recovery Studio", desc: "Pair a computer, identify its hardware, and prepare a verified recovery toolkit", icon: Usb, gradient: "from-slate-700 to-emerald-800", onClick: () => onNavigate("recovery") },
     { title: "Product Search", desc: "Identify, price, and list items using model numbers, barcodes, or photos", icon: Search, gradient: "from-emerald-500 to-teal-600", onClick: () => onNavigate("search") },
     { title: "Labels & Printing", desc: "Design and print custom price labels with templates and groups", icon: Tag, gradient: "from-blue-500 to-cyan-600", onClick: () => onNavigate("labels") },
     { title: "Training & Courses", desc: "Upload materials, build courses, and take quizzes with pass/fail scoring", icon: BookOpen, gradient: "from-amber-500 to-orange-600", onClick: () => onNavigate("training") },
