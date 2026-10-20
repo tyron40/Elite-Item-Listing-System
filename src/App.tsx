@@ -182,7 +182,19 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
     ] : []),
   ];
 
-  const handleNavigate = (p: Page) => { window.history.replaceState(null, "", p === "recovery" ? "#recovery" : window.location.pathname + window.location.search); setPage(p); setShowMobileMenu(false); setShowHistory(false); };
+  const [pageRevision, setPageRevision] = useState(0);
+  const handleNavigate = (p: Page) => {
+    window.history.replaceState(null, "", p === "recovery" ? "#recovery" : window.location.pathname + window.location.search);
+    setPage(p);
+    setPageRevision((previous) => previous + 1);
+    setShowMobileMenu(false);
+    setShowHistory(false);
+    setShowUserMenu(false);
+    fetchHistory();
+    fetchSettings();
+    fetchUnreadMessages();
+    window.scrollTo({ top: 0, behavior: "instant" });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/30 to-teal-50/40">
@@ -201,66 +213,8 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
               </div>
             </button>
 
-            {/* Desktop nav */}
-            <div className="hidden min-w-0 items-center gap-1.5 2xl:flex">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button key={item.key} onClick={() => handleNavigate(item.key)}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                      page === item.key ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}>
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                    {item.badge ? (
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{item.badge}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              <button onClick={() => setShowSettings(true)}
-                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
-                <SettingsIcon className="h-4 w-4" />
-                <span>Settings</span>
-              </button>
-              <button onClick={() => setShowHistory(!showHistory)}
-                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
-                <HistoryIcon className="h-4 w-4" />
-                <span>History</span>
-                {history.length > 0 && <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{history.length}</span>}
-              </button>
-
-              {/* User menu */}
-              <div className="relative">
-                <button onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-600 transition hover:bg-gray-200">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
-                    {(username || userEmail).charAt(0).toUpperCase()}
-                  </div>
-                  {isAdmin && <span className="text-xs text-emerald-600 font-bold">ADMIN</span>}
-                  <ChevronDown className="h-3 w-3 text-gray-400" />
-                </button>
-                {showUserMenu && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-                    <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
-                      <div className="px-4 py-2">
-                        <p className="truncate text-sm font-semibold text-gray-900">{username || userEmail}</p>
-                        <p className="text-xs text-gray-400">{isAdmin ? "Administrator" : "Standard user"}</p>
-                      </div>
-                      <div className="border-t border-gray-100" />
-                      <button onClick={() => { setShowUserMenu(false); onSignOut(); }}
-                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-50">
-                        <LogOut className="h-4 w-4" /> Sign Out
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
             {/* Mobile menu button */}
-            <div className="flex shrink-0 items-center gap-2 2xl:hidden">
+            <div className="flex shrink-0 items-center gap-2">
               {unreadMessages > 0 && (
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{unreadMessages}</span>
               )}
@@ -271,10 +225,11 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
             </div>
           </div>
 
-          {/* Mobile nav drawer */}
+          {/* Organized navigation drawer on all screen sizes */}
           {showMobileMenu && (
-            <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 2xl:hidden">
-              {navItems.map((item) => {
+            <div className="mt-3 border-t border-gray-100 pt-3" role="navigation" aria-label="Main navigation">
+              <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Navigation</p>
+              {navItems.filter((item) => !item.adminOnly).map((item) => {
                 const Icon = item.icon;
                 return (
                   <button key={item.key} onClick={() => handleNavigate(item.key)}
@@ -287,6 +242,14 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
                   </button>
                 );
               })}
+              {isAdmin && <>
+                <p className="mt-3 border-t border-gray-100 px-3 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Administration</p>
+                {navItems.filter((item) => item.adminOnly).map((item) => {
+                  const Icon = item.icon;
+                  return <button key={item.key} onClick={() => handleNavigate(item.key)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition ${page === item.key ? "bg-emerald-50 text-emerald-700" : "text-gray-600 hover:bg-gray-100"}`}><Icon className="h-4 w-4" />{item.label}</button>;
+                })}
+              </>}
+              <p className="mt-3 border-t border-gray-100 px-3 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Tools & account</p>
               <button onClick={() => { setShowMobileMenu(false); setShowSettings(true); }}
                 className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-100">
                 <SettingsIcon className="h-4 w-4" /> Settings
@@ -311,7 +274,7 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main key={`${page}-${pageRevision}`} className="mx-auto max-w-6xl px-4 py-6">
         {page === "home" ? (
           <HomePage historyCount={history.length} onNavigate={handleNavigate} onOpenHistory={() => { setPage("search"); setShowHistory(true); }} unreadMessages={unreadMessages} />
         ) : page === "recovery" ? (
