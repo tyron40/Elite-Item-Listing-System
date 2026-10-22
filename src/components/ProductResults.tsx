@@ -114,6 +114,31 @@ export default function ProductResults({
   const cpscRecallUrl = `https://www.cpsc.gov/Recalls?search_combined=${recallQuery}`;
   const nhtsaRecallUrl = "https://www.nhtsa.gov/recalls";
   const [showRecall, setShowRecall] = useState(false);
+  const [recallLoading, setRecallLoading] = useState(false);
+  const [recallError, setRecallError] = useState('');
+  const [recallResults, setRecallResults] = useState<Array<{id:number;title:string;date:string;description:string;url:string}>>([]);
+  const [recallChecked, setRecallChecked] = useState(false);
+  const checkRecalls = async () => {
+    setShowRecall(true);
+    setRecallLoading(true);
+    setRecallError('');
+    setRecallChecked(false);
+    setRecallResults([]);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/recall-lookup`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', apikey: import.meta.env.VITE_SUPABASE_ANON_KEY},
+        body: JSON.stringify({query:result.title}),
+        signal: AbortSignal.timeout(25000),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Recall lookup failed');
+      setRecallResults(payload.results || []);
+      setRecallChecked(true);
+    } catch (e) {
+      setRecallError(e instanceof Error ? e.message : 'Recall lookup unavailable');
+    } finally {setRecallLoading(false);}
+  };
   const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
   const chatGptUrl = `https://chat.openai.com/?q=${encodeURIComponent(searchQuery)}`;
 
@@ -328,12 +353,22 @@ export default function ProductResults({
       )}
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <button type="button" onClick={() => setShowRecall((value) => !value)} className="flex w-full items-center justify-between gap-3 text-left font-semibold text-amber-900">
+        <button type="button" onClick={() => { if (!showRecall && !recallChecked) void checkRecalls(); else setShowRecall(value => !value); }} className="flex w-full items-center justify-between gap-3 text-left font-semibold text-amber-900">
           <span className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Check Product Recalls</span>
           <span className="text-xs">{showRecall ? "Hide" : "Check recalls"}</span>
         </button>
         {showRecall && <div className="mt-3 space-y-2 text-sm text-amber-950">
           <p>Search official recall records for <strong>{result.title}</strong>. Match the exact brand, model and serial or date range before making a decision. No match does not guarantee the item is recall-free.</p>
+          {recallLoading && <p role="status" className="rounded-lg bg-white p-3">Checking the CPSC recall database…</p>}
+          {recallError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">Unable to check recalls: {recallError}. Try again.</p>}
+          {recallChecked && <p role="status" className="rounded-lg bg-white p-3 font-semibold">{recallResults.length ? `${recallResults.length} potential recall matches found. Verify the exact model.` : 'No matching CPSC recall records found in this search. This does not confirm the product is recall-free.'}</p>}
+          {recallResults.map(item => <article key={item.id} className="rounded-lg border border-amber-200 bg-white p-3">
+            <h4 className="font-semibold">{item.title}</h4>
+            <p className="mt-1 text-xs text-gray-600">{item.date ? new Date(item.date).toLocaleDateString() : 'Date unavailable'}</p>
+            <p className="mt-2 line-clamp-3 text-sm">{item.description}</p>
+            {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-semibold text-emerald-700 underline">View official recall <ExternalLink className="h-3 w-3" /></a>}
+          </article>)}
+          <button type="button" onClick={() => void checkRecalls()} disabled={recallLoading} className="rounded-lg bg-white px-3 py-2 font-semibold disabled:opacity-50">Refresh recall results</button>
           <a className="flex items-center gap-2 rounded-lg bg-white p-3 font-semibold text-amber-900 underline" href={cpscRecallUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /> Search CPSC recalls</a>
           <a className="flex items-center gap-2 rounded-lg bg-white p-3 font-semibold text-amber-900 underline" href={nhtsaRecallUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /> Vehicle recalls (NHTSA)</a>
         </div>}
