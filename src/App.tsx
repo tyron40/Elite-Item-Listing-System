@@ -201,17 +201,17 @@ function AuthenticatedApp({ isAdmin, userEmail, username, onSignOut }: { isAdmin
       {/* Header */}
       <header className="sticky top-0 z-30 border-b border-gray-200/60 bg-white/70 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6">
-          <div className="flex min-w-0 items-center justify-between gap-4">
+          <div className="relative flex min-w-0 items-center justify-between gap-4">
             {/* Logo */}
-            <button onClick={() => handleNavigate("home")} className="flex min-w-0 shrink-0 items-center gap-2.5 text-left">
+            <button onClick={() => handleNavigate("home")} className="flex h-10 w-10 shrink-0 items-center justify-center" aria-label="Go to home">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20">
                 <PackageSearch className="h-5 w-5 text-white" />
               </div>
-              <div className="min-w-0">
-                <h1 className="text-sm font-extrabold leading-tight tracking-tight text-gray-900 sm:text-base">Elite Item Listing</h1>
-                <p className="text-[11px] text-gray-500">{isAdmin ? "Admin Dashboard" : "Identify, price & list"}</p>
-              </div>
             </button>
+            <div className="pointer-events-none absolute left-1/2 max-w-[calc(100%-8rem)] -translate-x-1/2 text-center">
+              <h1 className="truncate text-sm font-extrabold leading-tight tracking-tight text-gray-900 sm:text-base">Elite Item Listing</h1>
+              <p className="truncate text-[11px] text-gray-500">{isAdmin ? "Admin Dashboard" : "Identify, price & list"}</p>
+            </div>
 
             {/* Mobile menu button */}
             <div className="flex shrink-0 items-center gap-2">
