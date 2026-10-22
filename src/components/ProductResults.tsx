@@ -110,6 +110,10 @@ export default function ProductResults({
   const AuthIcon = auth.icon;
 
   const searchQuery = result.title || "";
+  const recallQuery = encodeURIComponent(result.title || "product");
+  const cpscRecallUrl = `https://www.cpsc.gov/Recalls?search_combined=${recallQuery}`;
+  const nhtsaRecallUrl = "https://www.nhtsa.gov/recalls";
+  const [showRecall, setShowRecall] = useState(false);
   const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
   const chatGptUrl = `https://chat.openai.com/?q=${encodeURIComponent(searchQuery)}`;
 
@@ -322,6 +326,18 @@ export default function ProductResults({
           </div>
         </div>
       )}
+
+      <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <button type="button" onClick={() => setShowRecall((value) => !value)} className="flex w-full items-center justify-between gap-3 text-left font-semibold text-amber-900">
+          <span className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Check Product Recalls</span>
+          <span className="text-xs">{showRecall ? "Hide" : "Check recalls"}</span>
+        </button>
+        {showRecall && <div className="mt-3 space-y-2 text-sm text-amber-950">
+          <p>Search official recall records for <strong>{result.title}</strong>. Match the exact brand, model and serial or date range before making a decision. No match does not guarantee the item is recall-free.</p>
+          <a className="flex items-center gap-2 rounded-lg bg-white p-3 font-semibold text-amber-900 underline" href={cpscRecallUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /> Search CPSC recalls</a>
+          <a className="flex items-center gap-2 rounded-lg bg-white p-3 font-semibold text-amber-900 underline" href={nhtsaRecallUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /> Vehicle recalls (NHTSA)</a>
+        </div>}
+      </section>
 
       {/* Copy all */}
       <CopyAllButton result={result} formatPrice={formatPrice} />
