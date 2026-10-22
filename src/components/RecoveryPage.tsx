@@ -19,7 +19,24 @@ async function api<T>(body: Record<string, unknown>): Promise<T> {
 const label = (command: CommandKind) => ({ scan: 'Hardware rescan', download_toolkit: 'Toolkit download', reboot_firmware: 'UEFI restart request' })[command];
 const targets: Array<{ value: TargetOS; label: string }> = [{ value: 'unknown', label: 'Choose original operating system' }, { value: 'windows', label: 'Windows / Surface' }, { value: 'macos', label: 'macOS' }, { value: 'chromeos', label: 'ChromeOS' }, { value: 'linux', label: 'Linux' }];
 
+
+const RECOVERY_BRANDS = [
+  { name: 'Dell', terms: ['dell', 'alienware'], url: 'https://www.dell.com/support/home/en-us', key: 'F12', note: 'Use Service Tag to obtain model-specific recovery and drivers.' },
+  { name: 'HP', terms: ['hp', 'hewlett', 'omen', 'pavilion', 'elitebook', 'probook'], url: 'https://support.hp.com/us-en', key: 'Esc, then F9', note: 'Use product number to locate the correct recovery media.' },
+  { name: 'Lenovo', terms: ['lenovo', 'thinkpad', 'ideapad', 'legion'], url: 'https://pcsupport.lenovo.com/', key: 'F12 or Novo button', note: 'Use serial number to locate recovery options.' },
+  { name: 'Microsoft Surface', terms: ['surface', 'microsoft'], url: 'https://support.microsoft.com/surface-recovery-image', key: 'Hold Volume Down while pressing Power', note: 'Select the exact Surface model and recovery image.' },
+  { name: 'ASUS', terms: ['asus', 'rog', 'zenbook', 'vivobook'], url: 'https://www.asus.com/support/', key: 'Esc', note: 'Use the model number to locate official support downloads.' },
+  { name: 'Acer', terms: ['acer', 'aspire', 'predator', 'nitro'], url: 'https://www.acer.com/us-en/support', key: 'F12 (may need enabling in BIOS)', note: 'Verify exact model and recovery requirements.' },
+  { name: 'Apple Mac', terms: ['apple', 'macbook', 'imac', 'mac mini'], url: 'https://support.apple.com/mac', key: 'Apple silicon: hold Power; Intel: Option', note: 'Apple recovery often uses internet recovery or a Mac-specific installer.' },
+  { name: 'Chromebook', terms: ['chromebook', 'chromeos'], url: 'https://support.google.com/chromebook/answer/1080595', key: 'Esc + Refresh + Power', note: 'Use Chromebook Recovery Utility and exact model; Windows ISOs are not interchangeable.' },
+  { name: 'MSI', terms: ['msi'], url: 'https://www.msi.com/support', key: 'F11', note: 'Match the exact MSI model.' },
+  { name: 'Samsung', terms: ['samsung', 'galaxy book'], url: 'https://www.samsung.com/us/support/', key: 'F10 (varies by model)', note: 'Verify model-specific boot menu and recovery media.' },
+] as const;
+
 export default function RecoveryPage() {
+  const [deviceDescription, setDeviceDescription] = useState('');
+  const [usbConfirmed, setUsbConfirmed] = useState(false);
+  const [guideReady, setGuideReady] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [commands, setCommands] = useState<Command[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -87,6 +104,8 @@ export default function RecoveryPage() {
     });
     if (inputFile.current) inputFile.current.value = '';
   };
+  const description = deviceDescription.toLowerCase();
+  const matchedBrand = RECOVERY_BRANDS.find((brand) => brand.terms.some((term) => description.includes(term)));
   const commandDisabled = !online || !!busy || !!active;
   return <div className="space-y-5">
     <section className="relative overflow-hidden rounded-3xl bg-slate-950 p-6 text-white shadow-xl sm:p-8">
@@ -96,6 +115,26 @@ export default function RecoveryPage() {
         <div className="flex shrink-0 flex-col gap-3"><a href={TOOLKIT.url} download={TOOLKIT.filename} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-4 py-3 text-sm font-bold text-slate-950 hover:bg-emerald-300"><Download className="h-4 w-4" /> Download bootable USB image</a><span className="text-center text-xs text-slate-400">Direct ISO download · Intel/AMD 64-bit PCs</span></div>
       </div>
       <div className="relative mt-6 grid gap-3 border-t border-white/10 pt-5 sm:grid-cols-3">{[{ icon: PlugZap, title: '01 / Pair', text: 'Connect an authorized companion' }, { icon: Cpu, title: '02 / Identify', text: 'Read reported hardware details' }, { icon: ShieldCheck, title: '03 / Prepare', text: 'Review the route and verified file' }].map(item => <div key={item.title} className="flex items-center gap-3"><item.icon className="h-5 w-5 text-emerald-300" /><div><p className="text-sm font-semibold">{item.title}</p><p className="text-xs text-slate-400">{item.text}</p></div></div>)}</div>
+    </section>
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="text-xl font-bold text-slate-900">Find recovery files for your computer</h2>
+      <p className="mt-2 text-sm text-gray-600">Describe the manufacturer, exact model, and what you want to fix. We'll guide you to the manufacturer's official downloads and boot instructions.</p>
+      <label htmlFor="recovery-description" className="mt-4 block text-sm font-semibold text-gray-700">Computer brand and model</label>
+      <input id="recovery-description" value={deviceDescription} onChange={(e) => { setDeviceDescription(e.target.value); setGuideReady(false); setUsbConfirmed(false); }} placeholder="e.g. HP EliteBook 840 G8, Windows 11 won't boot" className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-emerald-500" />
+      <button type="button" onClick={() => setGuideReady(true)} disabled={!deviceDescription.trim()} className="mt-3 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-40">Find my recovery options</button>
+      {guideReady && <div className="mt-5 space-y-4 rounded-xl bg-slate-50 p-4 text-sm">
+        {matchedBrand ? <><p className="font-bold text-slate-900">Detected brand: {matchedBrand.name}</p><p>{matchedBrand.note}</p><a href={matchedBrand.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-3 font-semibold text-emerald-700 underline"><Download className="h-4 w-4" /> Open official recovery downloads</a><p><strong>Boot menu:</strong> {matchedBrand.key}. Check the manufacturer's instructions for your exact model.</p></> : <><p className="font-semibold text-amber-800">Brand not identified. Enter the manufacturer's name and exact model.</p><a href="https://www.microsoft.com/software-download/windows11" target="_blank" rel="noopener noreferrer" className="text-emerald-700 underline">Official Windows 11 installation media (compatible PCs only)</a></>}
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <p className="font-semibold">Prepare a USB drive</p>
+          <p className="mt-2 text-gray-600">1. Open the official download above and choose the recovery image for your exact model.</p>
+          <p className="mt-2 text-gray-600">2. Connect a USB drive (8 GB or larger is typical). Back up its contents: flashing erases the selected USB drive.</p>
+          <p className="mt-2 text-gray-600">3. Use the manufacturer's recovery creator or a trusted USB imaging tool to write the downloaded image.</p>
+          <p className="mt-2 text-gray-600">4. Restart the target computer and use its boot-menu key. Select the USB drive and follow the recovery prompts.</p>
+          <label className="mt-3 flex items-start gap-2"><input type="checkbox" checked={usbConfirmed} onChange={(e) => setUsbConfirmed(e.target.checked)} className="mt-1" /> I connected a USB drive and backed up anything important.</label>
+          {usbConfirmed && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-amber-900">USB ready for preparation. A normal website cannot safely detect raw removable disks or flash a bootable image directly. Use the official recovery creator or installed companion tool; do not mistake a file download for a flashed USB.</p>}
+        </div>
+      </div>}
+      <details className="mt-4 text-xs text-gray-500"><summary className="cursor-pointer">Supported manufacturer recovery sources</summary><div className="mt-2 flex flex-wrap gap-2">{RECOVERY_BRANDS.map((brand) => <a key={brand.name} href={brand.url} target="_blank" rel="noopener noreferrer" className="rounded-md bg-gray-100 px-2 py-1 underline">{brand.name}</a>)}</div></details>
     </section>
     {error && <div role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertCircle className="h-5 w-5 shrink-0" />{error}</div>}
     {notice && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{notice}</div>}
